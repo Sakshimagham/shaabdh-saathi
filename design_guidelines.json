@@ -1,0 +1,115 @@
+{
+  "theme": "light",
+  "typography": {
+    "headings": {
+      "family": "Outfit, sans-serif",
+      "weights": ["600", "700", "800"],
+      "tracking": "tracking-tight",
+      "instruction": "Use Outfit for all Headings (H1 to H4). Apply tracking-tight for sizes above 32px. Do NOT use Inter for headings."
+    },
+    "body": {
+      "family": "Figtree, sans-serif",
+      "weights": ["400", "500"],
+      "tracking": "tracking-normal",
+      "instruction": "Use Figtree for English body text. Ensure line-height is leading-relaxed for readability."
+    },
+    "marathi_support": {
+      "family": "Noto Sans Devanagari, system-ui, sans-serif",
+      "instruction": "Use Noto Sans Devanagari or default system Devanagari fonts for Marathi text. Ensure adequate line height (leading-loose) as Devanagari scripts have top and bottom matras that can clash."
+    },
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl font-bold tracking-tight text-slate-900",
+      "h2": "text-2xl sm:text-3xl font-semibold tracking-tight text-slate-800",
+      "h3": "text-xl sm:text-2xl font-semibold text-slate-800",
+      "body": "text-base text-slate-600",
+      "bilingual_subtitle": "text-sm text-slate-500 font-medium"
+    }
+  },
+  "colors": {
+    "archetype": "Organic & Earthy + Professional (Archetype 1)",
+    "palette": {
+      "primary": "#E65F2B",
+      "primary_hover": "#C94F20",
+      "primary_foreground": "#FFFFFF",
+      "background": "#FAFAF8",
+      "surface": "#FFFFFF",
+      "text_main": "#1C2127",
+      "text_muted": "#5E6C7E",
+      "success": "#22C55E",
+      "success_surface": "#F0FDF4",
+      "warning": "#F59E0B",
+      "border": "#E2E8F0"
+    },
+    "instruction": "Avoid harsh pure black. Use #1C2127 for primary text. Use the warm terracotta/saffron (#E65F2B) as the primary action color to evoke energy and approachability without being childish."
+  },
+  "layout_and_spacing": {
+    "philosophy": "Generous Spacing (Mobile-First)",
+    "container": "max-w-4xl mx-auto px-4 sm:px-6 md:px-8",
+    "spacing_scale": "Use p-6 or p-8 inside cards. Use gap-6 or gap-8 between major sections.",
+    "touch_targets": "Minimum 48px (h-12) for all interactive elements like buttons, dropdowns, and word toggles to accommodate adult mobile users.",
+    "grid": "Bento Grid logic for the Dashboard. 1 column on mobile, 2-3 columns on tablet/desktop for the 6 learning sections."
+  },
+  "components": {
+    "cards": {
+      "style": "Tactile Neumorphism (Soft UI)",
+      "classes": "bg-white rounded-3xl border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] overflow-hidden",
+      "hover": "hover:-translate-y-1 hover:shadow-[0_8px_30px_-4px_rgba(0,0,0,0.08)] transition-all duration-300"
+    },
+    "buttons": {
+      "primary": "rounded-full bg-[#E65F2B] text-white font-semibold h-14 px-8 shadow-sm hover:bg-[#C94F20] transition-colors active:scale-95",
+      "secondary": "rounded-full bg-white text-slate-700 font-semibold h-14 px-8 border-2 border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all active:scale-95"
+    },
+    "inputs_and_forms": {
+      "style": "Large, clear, highly accessible. Use Shadcn inputs but increase height to h-14 and text size to text-lg."
+    },
+    "learning_interactions": {
+      "reading_words": "inline-block border-b-2 border-dashed border-slate-300 cursor-pointer hover:border-[#E65F2B] hover:text-[#E65F2B] transition-colors py-1",
+      "speaking_mic": "w-20 h-20 rounded-full bg-[#E65F2B] text-white flex items-center justify-center shadow-lg shadow-[#E65F2B]/30 hover:scale-105 transition-transform"
+    }
+  },
+  "gamification": {
+    "progress_bars": "h-3 rounded-full bg-slate-100 overflow-hidden, inner bar rounded-full bg-gradient-to-r from-[#E65F2B] to-[#F59E0B]",
+    "badges": "Use SVG icons with soft, tinted background circles (e.g., bg-green-100 text-green-600) rather than heavy 3D renders. Keep it professional.",
+    "streak_counter": "Top nav element. Icon (Fire) + Number. Active state: text-[#E65F2B]."
+  },
+  "visual_enhancers": {
+    "shadows": "Ambient, soft shadows only. Never harsh drop shadows.",
+    "borders": "1px subtle borders (border-slate-100) on all floating surfaces.",
+    "motion": "Use framer-motion for micro-interactions: layout animations for list reordering, scale pulses for active microphone, subtle slide-up for entrance animations (y: 20, opacity: 0 -> y: 0, opacity: 1)."
+  },
+  "media": {
+    "icons": "Use @phosphor-icons/react (Duotone style) for a premium, friendly SaaS look.",
+    "images": [
+      {
+        "url": "https://images.unsplash.com/photo-1573497620053-ea5300f94f21?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwxfHxidXNpbmVzcyUyMGludGVydmlldyUyMGNvbnZlcnNhdGlvbnxlbnwwfHx8fDE3ODYxMDE3MDV8MA&ixlib=rb-4.1.0&q=85",
+        "category": "Interview Prep Section",
+        "description": "Two women conversing in a professional setup, used as the hero or thumbnail for the Interview Prep module."
+      }
+    ]
+  },
+  "accessibility_and_testing": {
+    "contrast": "Ensure text over the primary orange button is pure white. Subtitles must be dark enough (slate-500) to pass 4.5:1 ratio on off-white backgrounds.",
+    "touch_targets": "All tappable words and buttons MUST be at least 44x44px. Add padding to inline words if necessary.",
+    "testing": "All interactive and key informational elements MUST include a data-testid attribute (e.g., data-testid='reading-word-trigger', data-testid='mic-button').",
+    "language_toggle": "Must have an aria-label explaining the language switch, and visually persistent in the header."
+  },
+  "instructions_to_main_agent": [
+    "You are building a gamified educational app for ADULTS. Do not make it look like a children's game. Use the provided sophisticated color palette.",
+    "Ensure 'Bilingual everywhere'. Implement the dual-language content clearly, either side-by-side or stacked with English as primary and Marathi (muted color) right below it.",
+    "Use Phosphor Icons (yarn add @phosphor-icons/react) for all icons.",
+    "For the 'Reading' section, use a Shadcn popover or custom modal to show word meanings when a dashed word is clicked.",
+    "For the 'Speaking' section, implement a visual pulsing effect (using CSS keyframes or framer-motion) when the microphone is active.",
+    "Do not use generic center alignment for long text. Keep text left-aligned for better reading.",
+    "Include 'data-testid' attributes on all clickable elements, streak counters, XP bars, and level indicators."
+  ],
+  "universal_guidelines_for_main_agent": [
+    "Do not converge toward generic, 'on distribution' AI outputs. Avoid plain centered layouts and simplistic gradients.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "DO NOT apply universal transition (e.g., transition: all). Always add transitions for specific interactive properties.",
+    "DO NOT center align the app container in App.css.",
+    "Always use modern button styles (pill-shaped, rounded-full) with interaction animations.",
+    "NEVER use AI assistant emoji characters like 🤖🧠💭💡 for icons. Use the specified Phosphor icons.",
+    "Every interaction needs micro-animations - hover states, transitions, entrance animations. Use framer-motion.",
+    "Use sonner for toasts, located in /app/src/components/ui/sonner.tsx"
+  ]
+}

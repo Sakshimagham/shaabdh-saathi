@@ -1,0 +1,444 @@
+{
+  "test_question": "What is the capital of France? Answer in one sentence.",
+  "total_models_tested": 38,
+  "working_models": [
+    "models/gemini-3.7-flash-video-understanding-eap",
+    "models/gemini-flash-latest",
+    "models/gemini-flash-lite-latest",
+    "models/gemini-3-flash-preview",
+    "models/gemini-3.1-flash-lite-preview",
+    "models/gemini-3.1-flash-lite",
+    "models/gemini-3.5-flash",
+    "models/gemini-3.5-flash-lite",
+    "models/gemini-robotics-er-1.6-preview",
+    "models/gemini-robotics-er-2-preview"
+  ],
+  "working_count": 10,
+  "failed_count": 28,
+  "all_results": [
+    {
+      "model": "models/gemini-2.5-flash",
+      "display_name": "gemini-2.5-flash",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 1.3410375118255615,
+      "error": "Model not found"
+    },
+    {
+      "model": "models/gemini-2.5-pro",
+      "display_name": "gemini-2.5-pro",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 1.108151912689209,
+      "error": "Model not found"
+    },
+    {
+      "model": "models/gemini-2.5-flash-preview-tts",
+      "display_name": "gemini-2.5-flash-preview-tts",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 1.3314275741577148,
+      "error": "400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'The requested combination of response moda..."
+    },
+    {
+      "model": "models/gemini-2.5-pro-preview-tts",
+      "display_name": "gemini-2.5-pro-preview-tts",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 0.9215614795684814,
+      "error": "Quota exceeded"
+    },
+    {
+      "model": "models/gemini-3.7-flash-video-understanding-eap",
+      "display_name": "gemini-3.7-flash-video-understanding-eap",
+      "success": true,
+      "response": "The capital of France is Paris.",
+      "token_usage": {
+        "prompt_tokens": 13,
+        "candidates_tokens": 7,
+        "total_tokens": 101
+      },
+      "elapsed": 3.304743528366089,
+      "error": null
+    },
+    {
+      "model": "models/gemini-flash-latest",
+      "display_name": "gemini-flash-latest",
+      "success": true,
+      "response": "The capital of France is Paris.",
+      "token_usage": {
+        "prompt_tokens": 13,
+        "candidates_tokens": 7,
+        "total_tokens": 107
+      },
+      "elapsed": 2.029714345932007,
+      "error": null
+    },
+    {
+      "model": "models/gemini-flash-lite-latest",
+      "display_name": "gemini-flash-lite-latest",
+      "success": true,
+      "response": "The capital of France is Paris.",
+      "token_usage": {
+        "prompt_tokens": 13,
+        "candidates_tokens": 7,
+        "total_tokens": 20
+      },
+      "elapsed": 1.7437798976898193,
+      "error": null
+    },
+    {
+      "model": "models/gemini-pro-latest",
+      "display_name": "gemini-pro-latest",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 1.1759355068206787,
+      "error": "Quota exceeded"
+    },
+    {
+      "model": "models/gemini-2.5-flash-lite",
+      "display_name": "gemini-2.5-flash-lite",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 1.1071686744689941,
+      "error": "Model not found"
+    },
+    {
+      "model": "models/gemini-2.5-flash-image",
+      "display_name": "gemini-2.5-flash-image",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 0.9884448051452637,
+      "error": "Permission denied"
+    },
+    {
+      "model": "models/gemini-3-flash-preview",
+      "display_name": "gemini-3-flash-preview",
+      "success": true,
+      "response": "The capital of France is Paris.",
+      "token_usage": {
+        "prompt_tokens": 13,
+        "candidates_tokens": 7,
+        "total_tokens": 60
+      },
+      "elapsed": 2.265057325363159,
+      "error": null
+    },
+    {
+      "model": "models/gemini-3.1-pro-preview",
+      "display_name": "gemini-3.1-pro-preview",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 0.9982433319091797,
+      "error": "Quota exceeded"
+    },
+    {
+      "model": "models/gemini-3.1-pro-preview-customtools",
+      "display_name": "gemini-3.1-pro-preview-customtools",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 0.8681704998016357,
+      "error": "Quota exceeded"
+    },
+    {
+      "model": "models/gemini-3.1-flash-lite-preview",
+      "display_name": "gemini-3.1-flash-lite-preview",
+      "success": true,
+      "response": "The capital of France is Paris.",
+      "token_usage": {
+        "prompt_tokens": 13,
+        "candidates_tokens": 7,
+        "total_tokens": 20
+      },
+      "elapsed": 27.71005892753601,
+      "error": null
+    },
+    {
+      "model": "models/gemini-3.1-flash-lite",
+      "display_name": "gemini-3.1-flash-lite",
+      "success": true,
+      "response": "The capital of France is Paris.",
+      "token_usage": {
+        "prompt_tokens": 13,
+        "candidates_tokens": 7,
+        "total_tokens": 20
+      },
+      "elapsed": 8.98851490020752,
+      "error": null
+    },
+    {
+      "model": "models/gemini-3-pro-image-preview",
+      "display_name": "gemini-3-pro-image-preview",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 0.9223284721374512,
+      "error": "Quota exceeded"
+    },
+    {
+      "model": "models/gemini-3-pro-image",
+      "display_name": "gemini-3-pro-image",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 0.9907577037811279,
+      "error": "Quota exceeded"
+    },
+    {
+      "model": "models/gemini-3.1-flash-image-preview",
+      "display_name": "gemini-3.1-flash-image-preview",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 2.1130197048187256,
+      "error": "Quota exceeded"
+    },
+    {
+      "model": "models/gemini-3.1-flash-image",
+      "display_name": "gemini-3.1-flash-image",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 3.891178846359253,
+      "error": "Quota exceeded"
+    },
+    {
+      "model": "models/gemini-3.1-flash-lite-image",
+      "display_name": "gemini-3.1-flash-lite-image",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 1.8394968509674072,
+      "error": "Quota exceeded"
+    },
+    {
+      "model": "models/gemini-3.5-flash",
+      "display_name": "gemini-3.5-flash",
+      "success": true,
+      "response": "The capital of",
+      "token_usage": {
+        "prompt_tokens": 13,
+        "candidates_tokens": 3,
+        "total_tokens": 109
+      },
+      "elapsed": 11.202517747879028,
+      "error": null
+    },
+    {
+      "model": "models/gemini-3.5-flash-lite",
+      "display_name": "gemini-3.5-flash-lite",
+      "success": true,
+      "response": "The capital of France is Paris.",
+      "token_usage": {
+        "prompt_tokens": 13,
+        "candidates_tokens": 7,
+        "total_tokens": 20
+      },
+      "elapsed": 14.41070294380188,
+      "error": null
+    },
+    {
+      "model": "models/gemini-omni-flash-preview",
+      "display_name": "gemini-omni-flash-preview",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 40.74783754348755,
+      "error": "[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)"
+    },
+    {
+      "model": "models/gemini-3.6-flash",
+      "display_name": "gemini-3.6-flash",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 27.936851024627686,
+      "error": "[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)"
+    },
+    {
+      "model": "models/gemini-3.7-flash",
+      "display_name": "gemini-3.7-flash",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 11.696630001068115,
+      "error": "[Errno 11001] getaddrinfo failed"
+    },
+    {
+      "model": "models/gemini-3.1-flash-tts-preview",
+      "display_name": "gemini-3.1-flash-tts-preview",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 11.753416299819946,
+      "error": "[Errno 11001] getaddrinfo failed"
+    },
+    {
+      "model": "models/gemini-robotics-er-1.6-preview",
+      "display_name": "gemini-robotics-er-1.6-preview",
+      "success": true,
+      "response": "The capital",
+      "token_usage": {
+        "prompt_tokens": 13,
+        "candidates_tokens": 2,
+        "total_tokens": 109
+      },
+      "elapsed": 18.91566777229309,
+      "error": null
+    },
+    {
+      "model": "models/gemini-robotics-er-2-preview",
+      "display_name": "gemini-robotics-er-2-preview",
+      "success": true,
+      "response": "The capital of France is Paris.",
+      "token_usage": {
+        "prompt_tokens": 13,
+        "candidates_tokens": 7,
+        "total_tokens": 72
+      },
+      "elapsed": 2.6652438640594482,
+      "error": null
+    },
+    {
+      "model": "models/gemini-2.5-computer-use-preview-10-2025",
+      "display_name": "gemini-2.5-computer-use-preview-10-2025",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 0.9168529510498047,
+      "error": "Quota exceeded"
+    },
+    {
+      "model": "models/gemini-embedding-001",
+      "display_name": "gemini-embedding-001",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 0.9125339984893799,
+      "error": "Model not found"
+    },
+    {
+      "model": "models/gemini-embedding-2-preview",
+      "display_name": "gemini-embedding-2-preview",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 1.0330588817596436,
+      "error": "Model not found"
+    },
+    {
+      "model": "models/gemini-embedding-2",
+      "display_name": "gemini-embedding-2",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 0.9287464618682861,
+      "error": "Model not found"
+    },
+    {
+      "model": "models/gemini-2.5-flash-native-audio-latest",
+      "display_name": "gemini-2.5-flash-native-audio-latest",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 1.0230486392974854,
+      "error": "Model not found"
+    },
+    {
+      "model": "models/gemini-2.5-flash-native-audio-preview-09-2025",
+      "display_name": "gemini-2.5-flash-native-audio-preview-09-2025",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 0.9162712097167969,
+      "error": "Model not found"
+    },
+    {
+      "model": "models/gemini-2.5-flash-native-audio-preview-12-2025",
+      "display_name": "gemini-2.5-flash-native-audio-preview-12-2025",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 1.3308043479919434,
+      "error": "Model not found"
+    },
+    {
+      "model": "models/gemini-3.1-flash-live-preview",
+      "display_name": "gemini-3.1-flash-live-preview",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 0.9133574962615967,
+      "error": "Model not found"
+    },
+    {
+      "model": "models/gemini-robotics-er-2-streaming-preview",
+      "display_name": "gemini-robotics-er-2-streaming-preview",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 1.0175549983978271,
+      "error": "Model not found"
+    },
+    {
+      "model": "models/gemini-3.5-live-translate-preview",
+      "display_name": "gemini-3.5-live-translate-preview",
+      "success": false,
+      "response": null,
+      "token_usage": null,
+      "elapsed": 0.9338271617889404,
+      "error": "Model not found"
+    }
+  ],
+  "available_models": [
+    "models/gemini-2.5-flash",
+    "models/gemini-2.5-pro",
+    "models/gemini-2.5-flash-preview-tts",
+    "models/gemini-2.5-pro-preview-tts",
+    "models/gemini-3.7-flash-video-understanding-eap",
+    "models/gemini-flash-latest",
+    "models/gemini-flash-lite-latest",
+    "models/gemini-pro-latest",
+    "models/gemini-2.5-flash-lite",
+    "models/gemini-2.5-flash-image",
+    "models/gemini-3-flash-preview",
+    "models/gemini-3.1-pro-preview",
+    "models/gemini-3.1-pro-preview-customtools",
+    "models/gemini-3.1-flash-lite-preview",
+    "models/gemini-3.1-flash-lite",
+    "models/gemini-3-pro-image-preview",
+    "models/gemini-3-pro-image",
+    "models/gemini-3.1-flash-image-preview",
+    "models/gemini-3.1-flash-image",
+    "models/gemini-3.1-flash-lite-image",
+    "models/gemini-3.5-flash",
+    "models/gemini-3.5-flash-lite",
+    "models/gemini-omni-flash-preview",
+    "models/gemini-3.6-flash",
+    "models/gemini-3.7-flash",
+    "models/gemini-3.1-flash-tts-preview",
+    "models/gemini-robotics-er-1.6-preview",
+    "models/gemini-robotics-er-2-preview",
+    "models/gemini-2.5-computer-use-preview-10-2025",
+    "models/gemini-embedding-001",
+    "models/gemini-embedding-2-preview",
+    "models/gemini-embedding-2",
+    "models/gemini-2.5-flash-native-audio-latest",
+    "models/gemini-2.5-flash-native-audio-preview-09-2025",
+    "models/gemini-2.5-flash-native-audio-preview-12-2025",
+    "models/gemini-3.1-flash-live-preview",
+    "models/gemini-robotics-er-2-streaming-preview",
+    "models/gemini-3.5-live-translate-preview"
+  ],
+  "timestamp": 1786727786.7285755,
+  "timestamp_readable": "2026-08-14 22:46:26"
+}

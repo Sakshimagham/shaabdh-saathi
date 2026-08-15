@@ -1,0 +1,8 @@
+================================================================================
+GEMINI MODELS TEST SUMMARY
+================================================================================
+
+Test Date: 2026-08-14 22:46:26
+Test Question: What is the capital of France? Answer in one sentence.
+
+Total Models Tested: 38
