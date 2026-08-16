@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { api } from '../context/AppContext'; // ✅ CORRECT import - uses 'api', not 'API'
+import { api } from '../context/AppContext';   //
 
 function Login({ onLogin }) {
   const [isRegister, setIsRegister] = useState(false);
