@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { API } from '../context/AppContext'; // 👈 imports the backend base URL from context
+import { api } from '../context/AppContext'; // ✅ import the axios instance
 
 function Login({ onLogin }) {
   const [isRegister, setIsRegister] = useState(false);
@@ -18,40 +18,36 @@ function Login({ onLogin }) {
     setError('');
 
     try {
-      // ✅ Now using the full backend URL from environment variables
-      const response = await fetch(`${API}/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: name.trim(),
-          contact: contact.trim()
-        })
+      // ✅ Use the api instance – base URL is already set from env
+      const response = await api.post('/auth/login', {
+        name: name.trim(),
+        contact: contact.trim()
       });
 
-      const data = await response.json();
+      // Axios automatically parses JSON, response.data is the parsed object
+      const data = response.data;
 
-      if (response.ok) {
-        const successMsg = isRegister 
-          ? `🎉 Account created successfully! Welcome, ${data.name}!` 
-          : `✅ Welcome back, ${data.name}!`;
+      const successMsg = isRegister 
+        ? `🎉 Account created successfully! Welcome, ${data.name}!` 
+        : `✅ Welcome back, ${data.name}!`;
 
-        alert(successMsg);
-        
-        // Save user session
-        localStorage.setItem('user', JSON.stringify(data));
+      alert(successMsg);
+      
+      // Save user session
+      localStorage.setItem('user', JSON.stringify(data));
 
-        if (onLogin) {
-          onLogin(data);
-        }
-      } else {
-        setError(data.detail || `${isRegister ? 'Registration' : 'Login'} failed.`);
+      if (onLogin) {
+        onLogin(data);
       }
+
     } catch (err) {
-      console.error('Fetch error:', err);
-      // Generic error – the real issue is now fixed by using the correct URL
-      setError('❌ Unable to connect to server. Please check your internet connection and try again.');
+      console.error('API error:', err);
+      // Axios errors have err.response, we can show server error message
+      if (err.response && err.response.data && err.response.data.detail) {
+        setError(err.response.data.detail);
+      } else {
+        setError('❌ Unable to connect to server. Please check your internet connection and try again.');
+      }
     }
 
     setLoading(false);
