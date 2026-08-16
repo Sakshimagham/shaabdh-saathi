@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { api } from '../context/AppContext'; // ✅ import the axios instance
+import { api } from '../context/AppContext'; // ✅ CORRECT import - uses 'api', not 'API'
 
 function Login({ onLogin }) {
   const [isRegister, setIsRegister] = useState(false);
@@ -18,13 +18,12 @@ function Login({ onLogin }) {
     setError('');
 
     try {
-      // ✅ Use the api instance – base URL is already set from env
+      // ✅ Use the api instance (base URL already configured)
       const response = await api.post('/auth/login', {
         name: name.trim(),
         contact: contact.trim()
       });
 
-      // Axios automatically parses JSON, response.data is the parsed object
       const data = response.data;
 
       const successMsg = isRegister 
@@ -33,7 +32,6 @@ function Login({ onLogin }) {
 
       alert(successMsg);
       
-      // Save user session
       localStorage.setItem('user', JSON.stringify(data));
 
       if (onLogin) {
@@ -42,7 +40,6 @@ function Login({ onLogin }) {
 
     } catch (err) {
       console.error('API error:', err);
-      // Axios errors have err.response, we can show server error message
       if (err.response && err.response.data && err.response.data.detail) {
         setError(err.response.data.detail);
       } else {
@@ -60,7 +57,6 @@ function Login({ onLogin }) {
         {isRegister ? 'Create a new account to get started.' : 'Welcome back! Please login to continue.'}
       </p>
 
-      {/* Mode Toggle Tabs */}
       <div style={{ display: 'flex', marginBottom: '20px', borderRadius: '8px', overflow: 'hidden', border: '1px solid #E65F2B' }}>
         <button
           onClick={() => { setIsRegister(false); setError(''); }}
@@ -163,7 +159,6 @@ function Login({ onLogin }) {
         </button>
       </div>
 
-      {/* Switch Link */}
       <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '14px', color: '#555' }}>
         {isRegister ? (
           <span>
