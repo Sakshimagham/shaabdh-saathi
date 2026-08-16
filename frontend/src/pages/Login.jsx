@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 
 function Login({ onLogin }) {
   const [isRegister, setIsRegister] = useState(false);
@@ -17,7 +17,10 @@ function Login({ onLogin }) {
     setError('');
 
     try {
-      const response = await fetch('/api/auth/login', {
+      // Use Render URL in production, fall back to relative path (/api) for local proxying
+      const API_BASE = import.meta.env.VITE_API_URL || '';
+
+      const response = await fetch(`${API_BASE}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
