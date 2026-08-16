@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { api } from '../context/AppContext';   //
 
 function Login({ onLogin }) {
   const [isRegister, setIsRegister] = useState(false);
@@ -18,33 +17,38 @@ function Login({ onLogin }) {
     setError('');
 
     try {
-      // ✅ Use the api instance (base URL already configured)
-      const response = await api.post('/auth/login', {
-        name: name.trim(),
-        contact: contact.trim()
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: name.trim(),
+          contact: contact.trim()
+        })
       });
 
-      const data = response.data;
+      const data = await response.json();
 
-      const successMsg = isRegister 
-        ? `🎉 Account created successfully! Welcome, ${data.name}!` 
-        : `✅ Welcome back, ${data.name}!`;
+      if (response.ok) {
+        const successMsg = isRegister 
+          ? `🎉 Account created successfully! Welcome, ${data.name}!` 
+          : `✅ Welcome back, ${data.name}!`;
 
-      alert(successMsg);
-      
-      localStorage.setItem('user', JSON.stringify(data));
+        alert(successMsg);
+        
+        // Save user session
+        localStorage.setItem('user', JSON.stringify(data));
 
-      if (onLogin) {
-        onLogin(data);
-      }
-
-    } catch (err) {
-      console.error('API error:', err);
-      if (err.response && err.response.data && err.response.data.detail) {
-        setError(err.response.data.detail);
+        if (onLogin) {
+          onLogin(data);
+        }
       } else {
-        setError('❌ Unable to connect to server. Please check your internet connection and try again.');
+        setError(data.detail || `${isRegister ? 'Registration' : 'Login'} failed.`);
       }
+    } catch (err) {
+      console.error('Fetch error:', err);
+      setError('❌ Unable to connect to server. Ensure your backend server is running on port 8000.');
     }
 
     setLoading(false);
@@ -57,6 +61,7 @@ function Login({ onLogin }) {
         {isRegister ? 'Create a new account to get started.' : 'Welcome back! Please login to continue.'}
       </p>
 
+      {/* Mode Toggle Tabs */}
       <div style={{ display: 'flex', marginBottom: '20px', borderRadius: '8px', overflow: 'hidden', border: '1px solid #E65F2B' }}>
         <button
           onClick={() => { setIsRegister(false); setError(''); }}
@@ -159,6 +164,7 @@ function Login({ onLogin }) {
         </button>
       </div>
 
+      {/* Switch Link */}
       <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '14px', color: '#555' }}>
         {isRegister ? (
           <span>
