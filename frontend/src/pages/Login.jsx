@@ -7,6 +7,9 @@ function Login({ onLogin }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Automatically switches between your Render backend URL in production and localhost during development
+  const API = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
   const handleSubmit = async () => {
     if (!name.trim() || !contact.trim()) {
       setError('Please enter both name and contact information.');
@@ -17,7 +20,7 @@ function Login({ onLogin }) {
     setError('');
 
     try {
-      const response = await fetch('/api/auth/login', {
+      const response = await fetch(`${API}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -48,7 +51,7 @@ function Login({ onLogin }) {
       }
     } catch (err) {
       console.error('Fetch error:', err);
-      setError('❌ Unable to connect to server. Ensure your backend server is running on port 8000.');
+      setError('❌ Unable to connect to server. Ensure your backend server is running.');
     }
 
     setLoading(false);
