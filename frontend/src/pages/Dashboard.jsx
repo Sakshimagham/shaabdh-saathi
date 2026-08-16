@@ -17,7 +17,7 @@ function Dashboard({ user, onLogout, goToPage }) {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <div>
-          <h1 style={{ color: '#E65F2B', margin: 0, fontSize: '32px', fontWeight: '800' }}>Shaabdh Saathi</h1>
+          <h1 style={{ color: '#E65F2B', margin: 0, fontSize: '32px', fontWeight: '800' }}>शब्दसाथी</h1>
           <p style={{ margin: '6px 0 0 0', color: '#718096', fontSize: '15px' }}>
             {showMarathi ? 'मराठीतून इंग्रजी शिकण्याचे सोपे व प्रभावी माध्यम' : 'Learn English comfortably through Marathi'}
           </p>
