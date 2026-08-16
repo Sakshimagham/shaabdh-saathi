@@ -1,6 +1,7 @@
 fastapi==0.85.0
 uvicorn==0.25.0
 motor==3.3.1
+<<<<<<< Updated upstream
 pymongo==4.6.3
 python-dotenv==1.0.1
 python-multipart==0.0.9
@@ -17,3 +18,21 @@ typer==0.9.0
 pydantic==1.10.18
 setuptools==69.0.3
 wheel==0.42.0
+=======
+pytest>=8.0.0
+pytest-xdist>=3.6.0
+black>=24.1.1
+isort>=5.13.2
+flake8>=7.0.0
+mypy>=1.8.0
+python-jose>=3.3.0
+requests>=2.31.0
+pandas>=2.2.0
+numpy>=1.26.0
+python-multipart>=0.0.9
+jq>=1.6.0
+typer>=0.9.0
+
+
+
+>>>>>>> Stashed changes
