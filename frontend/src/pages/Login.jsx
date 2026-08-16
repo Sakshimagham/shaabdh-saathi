@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { API } from '../context/AppContext'; // 👈 imports the backend base URL from context
 
 function Login({ onLogin }) {
   const [isRegister, setIsRegister] = useState(false);
@@ -17,10 +18,8 @@ function Login({ onLogin }) {
     setError('');
 
     try {
-      // Use Render URL in production, fall back to relative path (/api) for local proxying
-      const API_BASE = import.meta.env.VITE_API_URL || '';
-
-      const response = await fetch(`${API_BASE}/api/auth/login`, {
+      // ✅ Now using the full backend URL from environment variables
+      const response = await fetch(`${API}/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -51,7 +50,8 @@ function Login({ onLogin }) {
       }
     } catch (err) {
       console.error('Fetch error:', err);
-      setError('❌ Unable to connect to server. Ensure your backend server is running on port 8000.');
+      // Generic error – the real issue is now fixed by using the correct URL
+      setError('❌ Unable to connect to server. Please check your internet connection and try again.');
     }
 
     setLoading(false);
