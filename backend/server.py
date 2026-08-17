@@ -15,9 +15,10 @@ import uuid
 
 import certifi
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, File, Form, Header, HTTPException, Query, UploadFile, Response
+from fastapi import APIRouter, FastAPI, File, Form, Header, HTTPException, Query, UploadFile, Response, Request
+from fastapi.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
 
 # Setup logging
@@ -58,7 +59,6 @@ except ImportError:
 # Safe Local faster-whisper SDK import
 try:
     from faster_whisper import WhisperModel
-    # Initialize local model once at server start (downloads 'base' model once)
     local_whisper = WhisperModel("base", device="cpu", compute_type="int8")
     FASTER_WHISPER_AVAILABLE = True
     logger.info("✅ local_whisper ('base' model on CPU) initialized successfully!")
@@ -135,7 +135,6 @@ async def get_available_gemini_models():
     """Get available Gemini models and cache them for 1 hour."""
     global gemini_available_models_cache, gemini_cache_timestamp
     
-    # Check if cache is valid (1 hour)
     if gemini_available_models_cache and gemini_cache_timestamp:
         if time.time() - gemini_cache_timestamp < 3600:
             return gemini_available_models_cache
@@ -148,7 +147,6 @@ async def get_available_gemini_models():
         available = []
         for model in models:
             if "gemini" in model.name.lower():
-                # Filter out models that don't work or give partial responses
                 skip_patterns = ["embedding", "tts", "audio", "computer-use", "live-preview", "streaming", "translate", "image", "preview-tts"]
                 if any(x in model.name.lower() for x in skip_patterns):
                     continue
@@ -160,7 +158,6 @@ async def get_available_gemini_models():
         return available
     except Exception as e:
         logger.warning(f"⚠️ Could not fetch Gemini models: {e}")
-        # Return ONLY the 8 models that gave FULL responses from testing
         return [
             "gemini-flash-lite-latest",
             "gemini-flash-latest",
@@ -177,11 +174,6 @@ async def get_available_gemini_models():
 # LOCAL WHISPER TRANSCRIPTION HELPER
 # ==========================================
 async def transcribe_locally(audio_bytes: bytes) -> str:
-    """
-    Transcribes audio locally on CPU using faster-whisper.
-    Consumes 0 API tokens and has no cloud timeouts.
-    Uses asyncio.to_thread to run non-blockingly.
-    """
     if not local_whisper:
         raise Exception("faster-whisper model is not initialized on this server.")
 
@@ -189,11 +181,9 @@ async def transcribe_locally(audio_bytes: bytes) -> str:
         with tempfile.NamedTemporaryFile(suffix=".webm", delete=True) as temp_audio:
             temp_audio.write(audio_bytes)
             temp_audio.flush()
-            
             segments, info = local_whisper.transcribe(temp_audio.name, beam_size=5)
             return " ".join([segment.text for segment in segments]).strip()
 
-    # Offload CPU-bound inference to worker thread pool
     return await asyncio.to_thread(_sync_transcribe)
 
 
@@ -201,14 +191,9 @@ async def transcribe_locally(audio_bytes: bytes) -> str:
 # PER-MESSAGE METRICS ANALYZER
 # ==========================================
 def analyze_message_metrics(text: str) -> dict:
-    """
-    Analyze a single user message and return detailed metrics.
-    This runs locally without LLM calls for speed.
-    """
     import re
     from collections import Counter
     
-    # Split words
     words = text.split()
     total_words = len(words)
     
@@ -229,7 +214,6 @@ def analyze_message_metrics(text: str) -> dict:
             "feedback_short": "Please say something!"
         }
     
-    # Detect English vs Marathi
     devanagari_pattern = re.compile(r'[\u0900-\u097F]')
     english_pattern = re.compile(r'[a-zA-Z]')
     
@@ -247,11 +231,9 @@ def analyze_message_metrics(text: str) -> dict:
     
     english_percentage = int((english_words / total_words) * 100) if total_words > 0 else 0
     
-    # Grammar error detection (simplified)
     grammar_errors = 0
     text_lower = text.lower()
     
-    # Common grammar issues
     if ' i ' in text_lower or text_lower.startswith('i ') or text_lower.endswith(' i'):
         grammar_errors += 1
     if ' dont ' in text_lower or " don't " in text_lower:
@@ -261,16 +243,13 @@ def analyze_message_metrics(text: str) -> dict:
     if ' didnt ' in text_lower or " didn't " in text_lower:
         grammar_errors += 1
     
-    # Check for sentence structure issues (no verb detected)
     has_verb = any(word in text_lower.split() for word in ['is', 'am', 'are', 'was', 'were', 'have', 'has', 'had', 'do', 'does', 'did', 'go', 'went', 'come', 'came', 'see', 'saw', 'get', 'got', 'make', 'made'])
     if not has_verb and total_words > 2:
         grammar_errors += 1
     
-    # Vocabulary variety
     unique_words = len(set(w.lower() for w in words if w.isalpha()))
     vocab_ratio = unique_words / total_words if total_words > 0 else 0
     
-    # Common word suggestions
     vocabulary_suggestions = []
     common_words_map = {
         'good': 'excellent, wonderful, fantastic',
@@ -305,10 +284,7 @@ def analyze_message_metrics(text: str) -> dict:
                     if len(vocabulary_suggestions) >= 3:
                         break
     
-    # Pronunciation hints
     pronunciation_hints = []
-    
-    # Common pronunciation issues for Marathi speakers
     common_pronunciation_issues = {
         'where': "Say 'wer' (rhymes with 'hair') - don't say 'hwair'",
         'what': "Say 'wot' - don't say 'hwat'",
@@ -340,14 +316,12 @@ def analyze_message_metrics(text: str) -> dict:
         if word_lower in common_pronunciation_issues and len(pronunciation_hints) < 2:
             pronunciation_hints.append(f"'{word}': {common_pronunciation_issues[word_lower]}")
     
-    # Calculate scores
     fluency = min(95, max(30, 60 + (min(total_words, 20) * 1.5) - (grammar_errors * 3)))
     confidence = min(95, max(25, 50 + (min(total_words, 15) * 2) + (vocab_ratio * 30) - (marathi_words * 1.5)))
     vocabulary = min(95, max(20, 45 + (vocab_ratio * 50) + (len(set(w.lower() for w in words if w.isalpha())) * 2)))
     grammar = min(95, max(20, 80 - (grammar_errors * 10)))
     pronunciation = min(95, max(30, 75 - (len([w for w in words if w.lower() in common_pronunciation_issues]) * 3)))
     
-    # Short feedback
     feedback_short = ""
     if grammar_errors > 2:
         feedback_short += "Watch your grammar. "
@@ -386,10 +360,8 @@ def analyze_message_metrics(text: str) -> dict:
 # PDF EXTRACTION FUNCTIONS
 # ==========================================
 async def extract_text_from_pdf(file_bytes: bytes) -> str:
-    """Extract text from PDF using available libraries."""
     extracted_text = ""
     
-    # Try PyMuPDF first (best for complex PDFs)
     if PYMUPDF_SUPPORT:
         try:
             doc = fitz.open(stream=file_bytes, filetype="pdf")
@@ -404,7 +376,6 @@ async def extract_text_from_pdf(file_bytes: bytes) -> str:
         except Exception as e:
             logger.warning(f"PyMuPDF extraction failed: {e}")
     
-    # Try PyPDF2 as fallback
     if PDF_SUPPORT:
         try:
             pdf_reader = PyPDF2.PdfReader(BytesIO(file_bytes))
@@ -418,7 +389,6 @@ async def extract_text_from_pdf(file_bytes: bytes) -> str:
         except Exception as e:
             logger.warning(f"PyPDF2 extraction failed: {e}")
     
-    # Try a simpler approach - direct text extraction
     try:
         import re
         text = file_bytes.decode('utf-8', errors='ignore')
@@ -437,7 +407,6 @@ async def extract_text_from_pdf(file_bytes: bytes) -> str:
 
 
 async def extract_text_from_docx(file_bytes: bytes) -> str:
-    """Extract text from DOCX file."""
     if not DOCX_SUPPORT:
         raise Exception("python-docx not installed for DOCX support")
     
@@ -449,7 +418,6 @@ async def extract_text_from_docx(file_bytes: bytes) -> str:
     except Exception as e:
         logger.warning(f"DOCX extraction failed: {e}")
     
-    # Try fallback: treat as zip and extract
     try:
         import zipfile
         import xml.etree.ElementTree as ET
@@ -474,7 +442,6 @@ async def extract_text_from_docx(file_bytes: bytes) -> str:
 
 
 def generate_fallback_analysis(text: str) -> dict:
-    """Generate fallback analysis when LLM fails."""
     keywords = ["communication", "team", "leadership", "project", "management", 
                 "data", "analysis", "development", "design", "problem", "solving"]
     
@@ -504,7 +471,6 @@ def generate_fallback_analysis(text: str) -> dict:
 
 
 def generate_fallback_questions(role: str, count: int) -> List[Dict]:
-    """Generate fallback interview questions if LLM fails."""
     import random
     
     behavioral_qs = [
@@ -592,18 +558,8 @@ async def call_llm_with_fallback(
     user_prompt: str, 
     temperature: float = 0.7
 ) -> dict:
-    """
-    Cascades requests seamlessly across providers:
-    1. Groq (llama-3.3-70b-versatile) - Fastest, most capable
-    2. Groq (llama-3.1-8b-instant) - Fast fallback
-    3. OpenRouter (deepseek/deepseek-chat) - Good quality
-    4. OpenRouter (meta-llama/llama-3.3-70b-instruct) - Quality fallback
-    5. Google Gemini models - Efficient fallback
-    """
-    
     errors = []
 
-    # 1. Try Groq Models
     if groq_client:
         groq_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
         for model in groq_models:
@@ -636,7 +592,6 @@ async def call_llm_with_fallback(
                 await asyncio.sleep(0.1)
                 continue
 
-    # 2. Try OpenRouter Fallback
     if openrouter_client:
         openrouter_models = [
             "deepseek/deepseek-chat",
@@ -670,7 +625,6 @@ async def call_llm_with_fallback(
                 await asyncio.sleep(0.1)
                 continue
 
-    # 3. Try Google Gemini Models
     if gemini_client:
         available_gemini_models = await get_available_gemini_models()
         gemini_model_priority = [
@@ -728,7 +682,6 @@ async def call_llm_with_fallback(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan manager replacing deprecated on_event handlers."""
     yield
     client.close()
 
@@ -738,14 +691,30 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Enable CORS for frontend integration
+# ==========================================
+# PRODUCTION CORS – allow only your frontend(s)
+# ==========================================
+ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "https://shaabdh-saathi.vercel.app")
+ALLOWED_ORIGINS_LIST = [origin.strip() for origin in ALLOWED_ORIGINS.split(",") if origin.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex="https://.*\.vercel\.app",
+    allow_origins=ALLOWED_ORIGINS_LIST,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ==========================================
+# GLOBAL EXCEPTION HANDLER (production)
+# ==========================================
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled error: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error. Please try again later."}
+    )
 
 api_router = APIRouter(prefix="/api")
 
@@ -842,6 +811,14 @@ class InterviewFeedbackRequest(BaseModel):
 
 
 # ==========================================
+# HEALTH CHECK ENDPOINT
+# ==========================================
+@api_router.get("/health")
+async def health_check():
+    return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+# ==========================================
 # GROQ VOICE TALK BOT ENDPOINT
 # ==========================================
 @api_router.post("/groq-voice-talk-bot")
@@ -849,10 +826,6 @@ async def groq_voice_talk_bot(
     audio: UploadFile = File(...),
     history: str = Form(default="[]")
 ):
-    """
-    Directly listens to the user's voice recording, transcribes it 
-    using multiple methods (faster-whisper, Google Speech, Vosk).
-    """
     try:
         audio_bytes = await audio.read()
         filename = audio.filename or "voice_note.webm"
@@ -861,7 +834,6 @@ async def groq_voice_talk_bot(
         user_spoken_text = None
         transcription_method = None
 
-        # METHOD 1: Try faster-whisper
         if FASTER_WHISPER_AVAILABLE and local_whisper:
             try:
                 user_spoken_text = await transcribe_locally(audio_bytes)
@@ -872,7 +844,6 @@ async def groq_voice_talk_bot(
                 logger.warning(f"⚠️ faster-whisper failed: {e}")
                 user_spoken_text = None
 
-        # METHOD 2: Try Google Speech Recognition
         if not user_spoken_text or len(user_spoken_text.strip()) == 0:
             try:
                 import speech_recognition as sr
@@ -924,7 +895,6 @@ async def groq_voice_talk_bot(
                 logger.warning(f"⚠️ Google Speech failed: {e}")
                 user_spoken_text = None
 
-        # METHOD 3: Try Vosk
         if not user_spoken_text or len(user_spoken_text.strip()) == 0:
             try:
                 import vosk
@@ -1035,9 +1005,8 @@ async def groq_voice_talk_bot(
 
 
 # ==========================================
-# INTERVIEW PREPARATION ENDPOINTS - FIXED
+# INTERVIEW PREPARATION ENDPOINTS (all your existing ones)
 # ==========================================
-
 @api_router.post("/interview/analyze-resume")
 async def analyze_resume(
     file: UploadFile = File(None),
@@ -1045,22 +1014,14 @@ async def analyze_resume(
     job_description: str = Form(""),
     user_id: str = Form(None)
 ):
-    """
-    Analyzes resume content and provides structured feedback.
-    Supports both file upload (PDF, DOCX, TXT) and direct text input.
-    """
     try:
         extracted_text = ""
         file_name = file.filename if file else None
         
-        # Case 1: File uploaded
         if file:
             logger.info(f"📄 Processing resume file: {file_name}")
-            
-            # Read file content
             file_bytes = await file.read()
             
-            # Extract text based on file type
             if file_name and file_name.lower().endswith('.txt'):
                 try:
                     extracted_text = file_bytes.decode('utf-8', errors='ignore')
@@ -1099,7 +1060,6 @@ async def analyze_resume(
                     detail="No text could be extracted from the file. Please ensure it's a valid document."
                 )
             
-        # Case 2: Direct text input
         elif resume_text:
             extracted_text = resume_text
             logger.info(f"📝 Received text input: {len(extracted_text)} chars")
@@ -1110,14 +1070,12 @@ async def analyze_resume(
                 detail="Please provide either a file upload or resume_text"
             )
         
-        # Truncate for analysis
         resume_analysis_text = extracted_text[:3000]
         jd_text = job_description or ""
         if len(jd_text) > 1500:
             jd_text = jd_text[:1500] + "..."
         
-        # Build system prompt for resume analysis
-        system_prompt = """You are an expert ATS (Applicant Tracking System) resume reviewer and career coach. 
+        system_prompt = """You are an expert ATS resume reviewer and career coach. 
         Analyze the resume and provide structured, actionable feedback.
         
         IMPORTANT: Return ONLY valid JSON with these exact keys:
@@ -1143,14 +1101,12 @@ async def analyze_resume(
         Provide structured feedback in valid JSON format.
         """
         
-        # Try to get analysis from LLM
         try:
             result = await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.3)
         except Exception as llm_err:
             logger.error(f"LLM analysis failed: {llm_err}")
             result = generate_fallback_analysis(extracted_text)
         
-        # Ensure all fields exist
         result.setdefault("extracted_skills", ["Communication", "Problem Solving", "Teamwork"])
         result.setdefault("strengths", ["Clear communication", "Good technical foundation", "Team player"])
         result.setdefault("weaknesses", ["Could provide more specific examples", "Missing quantifiable achievements"])
@@ -1164,7 +1120,6 @@ async def analyze_resume(
         result.setdefault("overall_rating", "Good")
         result.setdefault("summary_feedback", "Resume shows good potential. Consider adding more specific metrics and tailoring to the job description.")
         
-        # Save to database
         if user_id:
             try:
                 await db.interview_data.update_one(
@@ -1182,23 +1137,18 @@ async def analyze_resume(
             except Exception as db_err:
                 logger.error(f"DB save error: {db_err}")
         
-        # Return extracted text for frontend
         result["extracted_text"] = extracted_text[:2000]
-        
         return result
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error in resume analysis: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @api_router.post("/interview/generate-questions")
 async def generate_interview_questions(payload: Dict[str, Any]):
-    """
-    Generates tailored interview questions based on resume and JD.
-    """
     try:
         resume_text = payload.get("resume_text", "")[:2000]
         jd_text = payload.get("job_description", "")[:1500]
@@ -1206,7 +1156,6 @@ async def generate_interview_questions(payload: Dict[str, Any]):
         question_count = min(payload.get("question_count", 12), 15)
         user_id = payload.get("user_id")
         
-        # Determine role from JD
         role = "General"
         if jd_text:
             lines = jd_text.split('\n')[:5]
@@ -1217,7 +1166,6 @@ async def generate_interview_questions(payload: Dict[str, Any]):
                         role = clean_line[:80]
                         break
         
-        # Count types for balanced questions
         types_required = {
             "behavioral": max(2, question_count // 4),
             "technical": max(2, question_count // 4),
@@ -1226,7 +1174,6 @@ async def generate_interview_questions(payload: Dict[str, Any]):
             "problem_solving": max(1, question_count // 5)
         }
         
-        # Adjust to match total
         total_assigned = sum(types_required.values())
         if total_assigned < question_count:
             remaining = question_count - total_assigned
@@ -1270,7 +1217,6 @@ async def generate_interview_questions(payload: Dict[str, Any]):
         if len(result["questions"]) > question_count:
             result["questions"] = result["questions"][:question_count]
         
-        # Ensure each question has required fields
         for q in result["questions"]:
             q.setdefault("id", f"q{result['questions'].index(q) + 1}")
             q.setdefault("type", "behavioral")
@@ -1281,7 +1227,6 @@ async def generate_interview_questions(payload: Dict[str, Any]):
             q.setdefault("follow_up_hint", "Can you elaborate on that?")
             q.setdefault("category", role if role != "General" else "General")
         
-        # Save to database
         if user_id:
             try:
                 await db.interview_data.update_one(
@@ -1307,14 +1252,8 @@ async def generate_interview_questions(payload: Dict[str, Any]):
         }
 
 
-# ==========================================
-# ENHANCED /interview/practice WITH HR-STYLE FEEDBACK
-# ==========================================
 @api_router.post("/interview/practice")
 async def interview_practice(payload: InterviewPracticeRequest):
-    """
-    Handles the practice interview conversation and returns HR‑style feedback.
-    """
     try:
         question = payload.question
         user_answer = payload.user_answer
@@ -1328,20 +1267,19 @@ async def interview_practice(payload: InterviewPracticeRequest):
             for msg in conversation[-5:]
         ])
         
-        # Enhanced system prompt for HR-style feedback
         system_prompt = """
         You are an experienced HR interviewer and career coach. 
-        Evaluate the candidate's answer and provide **detailed, actionable feedback**.
+        Evaluate the candidate's answer and provide detailed, actionable feedback.
         Return a JSON object with the following keys:
-        - "evaluation": A short overall assessment (2‑3 sentences).
-        - "strengths": List of 2‑4 specific strengths of the answer.
-        - "improvements": List of 2‑4 specific areas that need improvement.
-        - "score": A numeric score from 0‑100.
-        - "follow_up_question": A natural follow‑up question to continue the conversation.
+        - "evaluation": A short overall assessment (2-3 sentences).
+        - "strengths": List of 2-4 specific strengths of the answer.
+        - "improvements": List of 2-4 specific areas that need improvement.
+        - "score": A numeric score from 0-100.
+        - "follow_up_question": A natural follow-up question to continue the conversation.
         - "tip": One practical tip to improve future answers.
-        - "key_points_covered": List of 2‑3 key points the candidate successfully addressed.
+        - "key_points_covered": List of 2-3 key points the candidate successfully addressed.
         - "communication_style": Brief feedback on clarity, structure, confidence, and use of language.
-        - "suggested_improvement": A concrete suggestion on how to improve the answer (e.g., using STAR, adding metrics, etc.).
+        - "suggested_improvement": A concrete suggestion on how to improve the answer.
         Keep the feedback constructive and encouraging.
         """
         
@@ -1354,7 +1292,6 @@ async def interview_practice(payload: InterviewPracticeRequest):
         
         result = await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.7)
         
-        # Set defaults to ensure all keys exist
         result.setdefault("evaluation", "Good attempt. Keep practising!")
         result.setdefault("strengths", ["Clear communication"])
         result.setdefault("improvements", ["Add more specific examples"])
@@ -1369,14 +1306,11 @@ async def interview_practice(payload: InterviewPracticeRequest):
         
     except Exception as e:
         logger.error(f"Error in interview practice: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @api_router.post("/interview/feedback")
 async def interview_feedback(payload: InterviewFeedbackRequest):
-    """
-    Generates comprehensive feedback after the practice session.
-    """
     try:
         conversation = payload.conversation
         job_role = payload.job_role or "General"
@@ -1424,14 +1358,11 @@ async def interview_feedback(payload: InterviewFeedbackRequest):
         
     except Exception as e:
         logger.error(f"Error in interview feedback: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @api_router.get("/interview/session/{user_id}")
 async def get_interview_session(user_id: str):
-    """
-    Retrieves all interview preparation data for a user.
-    """
     try:
         data = await db.interview_data.find_one({"user_id": user_id})
         if not data:
@@ -1451,14 +1382,11 @@ async def get_interview_session(user_id: str):
         
     except Exception as e:
         logger.error(f"Error fetching interview session: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @api_router.post("/interview/save-session")
 async def save_interview_session(payload: Dict[str, Any]):
-    """
-    Saves a completed practice session.
-    """
     try:
         user_id = payload.get("user_id")
         if not user_id:
@@ -1485,17 +1413,11 @@ async def save_interview_session(payload: Dict[str, Any]):
         
     except Exception as e:
         logger.error(f"Error saving interview session: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
-# ==========================================
-# INTERVIEW JD ANALYSIS (JSON endpoint) - NEW
-# ==========================================
 @api_router.post("/interview/analyze-jd")
 async def analyze_jd(payload: Dict[str, Any]):
-    """
-    Analyzes Job Description only (JSON endpoint for JD analysis).
-    """
     try:
         jd_text = payload.get("job_description", "")
         resume_text = payload.get("resume_text", "Resume not provided")
@@ -1504,13 +1426,12 @@ async def analyze_jd(payload: Dict[str, Any]):
         if not jd_text or not jd_text.strip():
             raise HTTPException(status_code=400, detail="Job Description is required")
         
-        # Truncate
         if len(jd_text) > 1500:
             jd_text = jd_text[:1500] + "..."
         if len(resume_text) > 2000:
             resume_text = resume_text[:2000] + "..."
         
-        system_prompt = """You are an expert ATS (Applicant Tracking System) resume reviewer and career coach. 
+        system_prompt = """You are an expert ATS resume reviewer and career coach. 
         Analyze the Job Description and provide structured feedback on how well the resume matches.
         
         IMPORTANT: Return ONLY valid JSON with these exact keys:
@@ -1543,7 +1464,6 @@ async def analyze_jd(payload: Dict[str, Any]):
             logger.error(f"LLM analysis failed: {llm_err}")
             result = generate_fallback_analysis(jd_text)
         
-        # Ensure all fields exist
         result.setdefault("extracted_skills", ["Communication", "Problem Solving", "Teamwork"])
         result.setdefault("strengths", ["Clear communication", "Good technical foundation"])
         result.setdefault("weaknesses", ["Could provide more specific examples", "Missing quantifiable achievements"])
@@ -1557,7 +1477,6 @@ async def analyze_jd(payload: Dict[str, Any]):
         result.setdefault("overall_rating", "Average")
         result.setdefault("summary_feedback", "The resume needs better alignment with the job description.")
         
-        # Save to database
         if user_id:
             try:
                 await db.interview_data.update_one(
@@ -1579,20 +1498,14 @@ async def analyze_jd(payload: Dict[str, Any]):
         raise
     except Exception as e:
         logger.error(f"Error in JD analysis: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
-# ==========================================
-# INTERVIEW VOICE TRANSCRIPTION ENDPOINT - NEW
-# ==========================================
 @api_router.post("/interview/voice-transcribe")
 async def interview_voice_transcribe(
     audio: UploadFile = File(...),
     history: str = Form(default="[]")
 ):
-    """
-    Transcribes voice for interview practice using the same working method as talking bot.
-    """
     try:
         audio_bytes = await audio.read()
         filename = audio.filename or "voice_note.webm"
@@ -1601,7 +1514,6 @@ async def interview_voice_transcribe(
         user_spoken_text = None
         transcription_method = None
 
-        # METHOD 1: Try faster-whisper (if available)
         if FASTER_WHISPER_AVAILABLE and local_whisper:
             try:
                 user_spoken_text = await transcribe_locally(audio_bytes)
@@ -1612,7 +1524,6 @@ async def interview_voice_transcribe(
                 logger.warning(f"⚠️ faster-whisper failed: {e}")
                 user_spoken_text = None
 
-        # METHOD 2: Try Google Speech Recognition with better format handling
         if not user_spoken_text or len(user_spoken_text.strip()) == 0:
             try:
                 import speech_recognition as sr
@@ -1669,7 +1580,6 @@ async def interview_voice_transcribe(
                 logger.warning(f"⚠️ Google Speech failed: {e}")
                 user_spoken_text = None
 
-        # METHOD 3: Try Vosk as fallback with proper wav conversion
         if not user_spoken_text or len(user_spoken_text.strip()) == 0:
             try:
                 import vosk
@@ -1733,7 +1643,6 @@ async def interview_voice_transcribe(
                 logger.warning(f"⚠️ Vosk failed: {e}")
                 user_spoken_text = None
 
-        # Return result
         if not user_spoken_text or len(user_spoken_text.strip()) == 0:
             logger.error("❌ All transcription methods failed")
             return {
@@ -1753,7 +1662,7 @@ async def interview_voice_transcribe(
         return {
             "transcribed_text": "",
             "success": False,
-            "error": str(e)
+            "error": "Internal server error"
         }
 
 
@@ -1791,7 +1700,8 @@ async def login(user: UserLogin):
         new_user.pop("_id", None)
         return new_user
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Login error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @api_router.get("/me")
@@ -1818,7 +1728,7 @@ async def get_or_generate_chapter(payload: ChapterGenerationRequest):
         )
     except Exception as e:
         logger.error(f"Error in chapter generation: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @api_router.post("/generate-passage")
@@ -1836,7 +1746,7 @@ async def generate_passage_legacy(payload: Optional[Dict[str, Any]] = None):
         )
     except Exception as e:
         logger.error(f"Error in generate-passage legacy route: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ==========================================
@@ -1844,7 +1754,6 @@ async def generate_passage_legacy(payload: Optional[Dict[str, Any]] = None):
 # ==========================================
 @api_router.post("/groq-writing-prompt")
 async def generate_writing_prompt(req: Optional[WritingPromptRequest] = None):
-    """Generate a dynamic writing/essay prompt for Marathi speakers learning English."""
     if req is None:
         req = WritingPromptRequest()
 
@@ -1886,7 +1795,6 @@ async def generate_writing_prompt(req: Optional[WritingPromptRequest] = None):
 
 @api_router.post("/groq-eval-writing")
 async def evaluate_writing(req: WritingEvalRequest):
-    """Evaluate a student's essay with feedback in Marathi."""
     if not req.text.strip():
         raise HTTPException(status_code=400, detail="Essay text cannot be empty.")
 
@@ -1938,19 +1846,11 @@ async def evaluate_writing(req: WritingEvalRequest):
 
 
 # ==========================================
-# ENHANCED TALKING BOT - WITH PER-MESSAGE METRICS
+# ENHANCED TALKING BOT
 # ==========================================
 @api_router.post("/groq-talk-bot")
 async def groq_talk_bot(payload: TalkBotRequest):
-    """
-    WhatsApp-style interactive conversation partner with:
-    - Proper English/Marathi blend based on user's level
-    - Bilingual (Marathi + English) grammar corrections
-    - Per-message metrics for each user message
-    - NO "सुधारलंय" in first message
-    """
     try:
-        # Get the last user message
         last_user_message = None
         user_message_count = 0
         for msg in payload.conversation:
@@ -1958,7 +1858,6 @@ async def groq_talk_bot(payload: TalkBotRequest):
                 last_user_message = msg.text
                 user_message_count += 1
         
-        # Check if this is the FIRST message
         is_initial = (user_message_count == 0)
         
         if hasattr(payload, 'is_initial_greeting') and payload.is_initial_greeting:
@@ -1971,7 +1870,6 @@ async def groq_talk_bot(payload: TalkBotRequest):
         english_percent = payload.english_percent if hasattr(payload, 'english_percent') else 50
         day = payload.day if hasattr(payload, 'day') else 1
         
-        # Format conversation history
         conversation_history = []
         user_messages = []
         for msg in payload.conversation:
@@ -1983,7 +1881,6 @@ async def groq_talk_bot(payload: TalkBotRequest):
         
         history_text = "\n".join(conversation_history[-12:])
         
-        # Calculate actual English/Marathi ratio from user's messages
         total_english_words = 0
         total_marathi_words = 0
         for msg in user_messages:
@@ -1992,13 +1889,11 @@ async def groq_talk_bot(payload: TalkBotRequest):
             total_english_words += english_words
             total_marathi_words += marathi_words
         
-        # Determine English percentage for response
         if total_english_words > 0 or total_marathi_words > 0:
             user_english_percent = (total_english_words / (total_english_words + total_marathi_words)) * 100
         else:
             user_english_percent = 20
         
-        # Blend based on user's level and usage
         target_english_percent = min(80, max(20, user_english_percent + (level * 2)))
         base_percent = english_percent if english_percent > 0 else 30
         
@@ -2017,18 +1912,10 @@ async def groq_talk_bot(payload: TalkBotRequest):
         logger.info(f"📝 English/Marathi ratio: {english_ratio}% English, {marathi_ratio}% Marathi")
         logger.info(f"📝 User's English usage: {user_english_percent:.1f}%")
         
-        # ==========================================
-        # NEW: Calculate per-message metrics for the user's last message
-        # ==========================================
         message_metrics = analyze_message_metrics(last_user_message)
         logger.info(f"📊 Message metrics: {message_metrics}")
         
         if is_initial:
-            # ==========================================
-            # FIRST MESSAGE - NO "सुधारलंय"
-            # ==========================================
-            
-            # Generate dynamic topic
             topic_system_prompt = (
                 "You are a creative conversation designer for English learners. "
                 f"Today is Day {day} of their learning journey. "
@@ -2056,7 +1943,6 @@ async def groq_talk_bot(payload: TalkBotRequest):
             
             logger.info(f"✨ Generated topic for Day {day}: {topic_data.get('topic')}")
             
-            # Generate greeting
             greeting_system_prompt = (
                 "You are a warm, friendly WhatsApp conversation partner. "
                 "This is the FIRST message. The student is a BEGINNER. "
@@ -2095,8 +1981,6 @@ async def groq_talk_bot(payload: TalkBotRequest):
             result["fun_fact"] = topic_data.get("fun_fact")
             result["follow_up"] = topic_data.get("follow_up")
             result["english_ratio"] = english_ratio
-            
-            # NEW: Add message metrics to initial greeting response
             result["message_metrics"] = message_metrics
             
             result["reply"] = result.get("reply", f"Namaste! Day {day} - Let's talk about {topic_data.get('topic')}! {topic_data.get('question')} ({topic_data.get('question_mr')})")
@@ -2112,12 +1996,8 @@ async def groq_talk_bot(payload: TalkBotRequest):
             return result
             
         else:
-            # ==========================================
-            # NON-INITIAL MESSAGES - BILINGUAL CORRECTIONS + METRICS
-            # ==========================================
             exchange_count = user_message_count
             
-            # Different encouragement based on exchange count
             if exchange_count <= 2:
                 encouragement_msg = "तुम्ही इंग्रजी बोलायला सुरुवात केली आहे, ही खूप चांगली गोष्ट आहे! असेच चालू ठेवा."
                 feedback_mr_default = "तुम्ही इंग्रजी बोलायला सुरुवात केली आहे, ही खूप चांगली गोष्ट आहे! असेच चालू ठेवा."
@@ -2133,7 +2013,6 @@ async def groq_talk_bot(payload: TalkBotRequest):
             logger.info(f"📝 Exchange {exchange_count}: Using '{encouragement_msg}'")
             logger.info(f"📝 English/Marathi ratio: {english_ratio}% English, {marathi_ratio}% Marathi")
             
-            # System prompt with bilingual correction capabilities
             system_prompt = (
                 "You are a warm, friendly WhatsApp conversation partner and English practice buddy. "
                 f"English/Marathi ratio: Use about {english_ratio}% English and {marathi_ratio}% Marathi. "
@@ -2175,13 +2054,10 @@ async def groq_talk_bot(payload: TalkBotRequest):
             
             result = await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.8)
             
-            # Ensure all required fields exist
             result["reply"] = result.get("reply", "That's interesting! Can you tell me more about that? (तुम्ही आणखी काही सांगू शकता?)")
             result["feedback_mr"] = result.get("feedback_mr", feedback_mr_default)
             result["soft_skill_tip"] = result.get("soft_skill_tip", "Try to use more English words in your sentences.")
             result["english_ratio"] = english_ratio
-            
-            # NEW: Add per-message metrics to response
             result["message_metrics"] = message_metrics
             
             return result
@@ -2218,11 +2094,10 @@ async def groq_talk_bot(payload: TalkBotRequest):
 
 
 # ==========================================
-# ENHANCED SESSION METRICS
+# SESSION METRICS
 # ==========================================
 @api_router.post("/groq-session-metrics")
 async def groq_session_metrics(payload: MetricsRequest):
-    """Calculates detailed evaluation metrics at the end of a speaking session."""
     try:
         user_messages = [msg.text for msg in payload.conversation if msg.sender == "user"]
         
@@ -2325,7 +2200,7 @@ async def groq_session_metrics(payload: MetricsRequest):
         
     except Exception as e:
         logger.error(f"Error in session metrics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ==========================================
@@ -2333,10 +2208,6 @@ async def groq_session_metrics(payload: MetricsRequest):
 # ==========================================
 @api_router.post("/transcribe-audio")
 async def transcribe_audio(payload: Dict[str, Any]):
-    """
-    Transcribes audio from base64 encoded audio data.
-    Uses faster-whisper locally for fast, free transcription.
-    """
     try:
         audio_data = payload.get("audio_data", "")
         language = payload.get("language", "en-US")
@@ -2413,7 +2284,7 @@ async def transcribe_audio(payload: Dict[str, Any]):
         
     except Exception as e:
         logger.error(f"Error in transcribe-audio: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ==========================================
@@ -2477,7 +2348,6 @@ FALLBACK_WRITING_PROMPTS = [
 # UNIVERSAL DIALOGUE DATA FORMATTER
 # ==========================================
 def format_dialogue_item(item: dict) -> dict:
-    """Normalizes dialogue keys into both camelCase and snake_case formats to match any frontend UI schema."""
     quote = item.get("quote") or item.get("dialogue") or item.get("expression") or ""
     movie = item.get("movie") or ""
     speaker = item.get("speaker") or ""
@@ -2510,22 +2380,16 @@ def format_dialogue_item(item: dict) -> dict:
         "movie": movie,
         "speaker": speaker,
         "context": context,
-        
-        # Meanings
         "what_it_means": what_it_means,
         "whatItMeans": what_it_means,
         "what_to_express": what_it_means,
         "meaning": what_it_means,
-        
-        # Usage Timing & Location
         "when_to_use": when_to_use,
         "whenToUse": when_to_use,
         "where_to_use": where_to_use,
         "whereToUse": where_to_use,
         "how_to_use": how_to_use,
         "howToUse": how_to_use,
-        
-        # Marathi Explanations
         "marathi_explanation": marathi,
         "marathiExplanation": marathi,
         "marathi": marathi,
@@ -2733,7 +2597,6 @@ async def generate_dialogues_list(
     req_page: int = 1, 
     force_fresh: bool = True
 ) -> List[Dict[str, Any]]:
-    """Generates 10 dynamic, unique Hollywood dialogues cascading across LLM providers."""
     selected_theme = random.choice(DIALOGUE_THEMES)
     random_seed = int(time.time() * 1000) % 10000
 
@@ -2842,7 +2705,6 @@ async def process_chapter_generation(user_id: str, raw_domain: str, chapter_numb
             "new_concepts": ["Core Mechanics", "Practical Application"]
         }
 
-    # Save to MongoDB cached chapters
     doc_to_save = {
         "user_id": user_id,
         "domain": matched_domain,
@@ -2913,7 +2775,8 @@ async def complete_progress(
         updated.pop("_id", None)
         return {"user": updated, "new_badges": []}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Progress error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ==========================================
@@ -2921,17 +2784,23 @@ async def complete_progress(
 # ==========================================
 @api_router.get("/hollywood-dialogues")
 async def fetch_hollywood_dialogues_get(page: int = Query(1)):
-    """Fetch Hollywood dialogues - always generates fresh dialogues on request."""
-    dialogues = await generate_dialogues_list(req_page=page, force_fresh=True)
-    return {"dialogues": dialogues}
+    try:
+        dialogues = await generate_dialogues_list(req_page=page, force_fresh=True)
+        return {"dialogues": dialogues}
+    except Exception as e:
+        logger.error(f"Error in dialogues GET: {e}")
+        return {"dialogues": [], "error": "Failed to generate dialogues"}
 
 
 @api_router.post("/hollywood-dialogues")
 async def fetch_hollywood_dialogues_post(payload: Optional[DialoguesRequest] = None):
-    """Fetch Hollywood dialogues with optional page parameter - always fresh."""
-    req_page = payload.page if payload and payload.page else random.randint(1, 100)
-    dialogues = await generate_dialogues_list(req_page=req_page, force_fresh=True)
-    return {"dialogues": dialogues}
+    try:
+        req_page = payload.page if payload and payload.page else random.randint(1, 100)
+        dialogues = await generate_dialogues_list(req_page=req_page, force_fresh=True)
+        return {"dialogues": dialogues}
+    except Exception as e:
+        logger.error(f"Error in dialogues POST: {e}")
+        return {"dialogues": [], "error": "Failed to generate dialogues"}
 
 
 # ==========================================
@@ -3052,13 +2921,6 @@ async def generate_speech(
     text: str = Query(...),
     language: str = Query("auto")
 ):
-    """
-    Generates speech audio using Microsoft Edge's free neural voice.
-    - language=en -> English voice (en-US-JennyNeural)
-    - language=mr -> Marathi voice (mr-IN-AarohiNeural)
-    - language=hi -> Hindi voice (hi-IN-SwaraNeural)
-    - language=auto -> Auto-detect based on text content
-    """
     try:
         import edge_tts
         import re
@@ -3110,13 +2972,15 @@ async def generate_speech(
         return Response(content=audio_bytes, media_type="audio/mpeg")
     except Exception as e:
         logger.error(f"❌ Error in TTS generation: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # Include the API Router
 app.include_router(api_router)
 
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+# ==========================================
+# REMOVED __main__ block for serverless deployment
+# ==========================================
+# if __name__ == "__main__":
+#     import uvicorn
+#     uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
