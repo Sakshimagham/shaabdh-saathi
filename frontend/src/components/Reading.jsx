@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 // ==========================================
+// API BASE URL – uses environment variable or falls back to localhost
+// ==========================================
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+// ==========================================
 // UNIVERSAL AUDIO PLAYER CONTROL COMPONENT
 // ==========================================
 function UniversalAudioPlayer({ textToRead, title = "Voice Assistant" }) {
@@ -331,7 +336,7 @@ function Reading({ onBack }) {
     setSelectedWord(null);
     setShowMarathi(false);
     try {
-      const response = await fetch('http://localhost:8000/api/generate-passage', {
+      const response = await fetch(`${API_BASE}/api/generate-passage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -379,7 +384,7 @@ function Reading({ onBack }) {
     setSelectedWord({ original: cleanWord, mr: 'Loading...', hi: 'Loading...' });
 
     try {
-      const response = await fetch('http://localhost:8000/api/translate-word', {
+      const response = await fetch(`${API_BASE}/api/translate-word`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ word: cleanWord })
