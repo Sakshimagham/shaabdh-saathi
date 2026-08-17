@@ -741,8 +741,7 @@ app = FastAPI(
 # Enable CORS for frontend integration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://shaabdh-saathi.vercel.app",
-                   "https://shaabdh-saathi-qr7gyerb9-sakshimaghams-projects.vercel.app"],
+    allow_origin_regex="https://.*\.vercel\.app",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
