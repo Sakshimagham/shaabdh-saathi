@@ -10,7 +10,7 @@ import random
 import re
 import tempfile
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 import uuid
 
 import certifi
@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, File, Form, Header, HTTPException, Query, UploadFile, Response, Request
 from fastapi.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from starlette.middleware.cors import CORSMiddleware
 
 # Setup logging
@@ -99,8 +99,8 @@ if not mongo_url:
 
 # Initialize MongoDB Client
 client = AsyncIOMotorClient(
-    mongo_url or "mongodb://localhost:27017", 
-    tlsCAFile=certifi.where(), 
+    mongo_url or "mongodb://localhost:27017",
+    tlsCAFile=certifi.where(),
     serverSelectionTimeoutMS=10000
 )
 db = client[os.environ.get("DB_NAME", "shaabdh_saathi")]
@@ -134,14 +134,14 @@ gemini_cache_timestamp = None
 async def get_available_gemini_models():
     """Get available Gemini models and cache them for 1 hour."""
     global gemini_available_models_cache, gemini_cache_timestamp
-    
+
     if gemini_available_models_cache and gemini_cache_timestamp:
         if time.time() - gemini_cache_timestamp < 3600:
             return gemini_available_models_cache
-    
+
     if not gemini_client:
         return []
-    
+
     try:
         models = gemini_client.models.list()
         available = []
@@ -151,7 +151,7 @@ async def get_available_gemini_models():
                 if any(x in model.name.lower() for x in skip_patterns):
                     continue
                 available.append(model.name)
-        
+
         gemini_available_models_cache = available
         gemini_cache_timestamp = time.time()
         logger.info(f"✅ Cached {len(available)} Gemini models")
@@ -193,10 +193,10 @@ async def transcribe_locally(audio_bytes: bytes) -> str:
 def analyze_message_metrics(text: str) -> dict:
     import re
     from collections import Counter
-    
+
     words = text.split()
     total_words = len(words)
-    
+
     if total_words == 0:
         return {
             "fluency": 0,
@@ -213,14 +213,14 @@ def analyze_message_metrics(text: str) -> dict:
             "pronunciation_hints": [],
             "feedback_short": "Please say something!"
         }
-    
+
     devanagari_pattern = re.compile(r'[\u0900-\u097F]')
     english_pattern = re.compile(r'[a-zA-Z]')
-    
+
     english_words = 0
     marathi_words = 0
     mixed_words = 0
-    
+
     for word in words:
         if devanagari_pattern.search(word):
             marathi_words += 1
@@ -228,12 +228,12 @@ def analyze_message_metrics(text: str) -> dict:
             english_words += 1
         else:
             mixed_words += 1
-    
+
     english_percentage = int((english_words / total_words) * 100) if total_words > 0 else 0
-    
+
     grammar_errors = 0
     text_lower = text.lower()
-    
+
     if ' i ' in text_lower or text_lower.startswith('i ') or text_lower.endswith(' i'):
         grammar_errors += 1
     if ' dont ' in text_lower or " don't " in text_lower:
@@ -242,14 +242,14 @@ def analyze_message_metrics(text: str) -> dict:
         grammar_errors += 1
     if ' didnt ' in text_lower or " didn't " in text_lower:
         grammar_errors += 1
-    
+
     has_verb = any(word in text_lower.split() for word in ['is', 'am', 'are', 'was', 'were', 'have', 'has', 'had', 'do', 'does', 'did', 'go', 'went', 'come', 'came', 'see', 'saw', 'get', 'got', 'make', 'made'])
     if not has_verb and total_words > 2:
         grammar_errors += 1
-    
+
     unique_words = len(set(w.lower() for w in words if w.isalpha()))
     vocab_ratio = unique_words / total_words if total_words > 0 else 0
-    
+
     vocabulary_suggestions = []
     common_words_map = {
         'good': 'excellent, wonderful, fantastic',
@@ -273,7 +273,7 @@ def analyze_message_metrics(text: str) -> dict:
         'think': 'believe, consider, reflect',
         'know': 'understand, comprehend, realize'
     }
-    
+
     for word in words:
         word_lower = word.lower()
         if word_lower in common_words_map and len(vocabulary_suggestions) < 3:
@@ -283,7 +283,7 @@ def analyze_message_metrics(text: str) -> dict:
                     vocabulary_suggestions.append(s)
                     if len(vocabulary_suggestions) >= 3:
                         break
-    
+
     pronunciation_hints = []
     common_pronunciation_issues = {
         'where': "Say 'wer' (rhymes with 'hair') - don't say 'hwair'",
@@ -310,18 +310,18 @@ def analyze_message_metrics(text: str) -> dict:
         'library': "Say 'lie-brer-ee' - not 'lie-berry'",
         'February': "Say 'feb-roo-air-ee' - not 'feb-yoo-air-ee'",
     }
-    
+
     for word in words:
         word_lower = word.lower()
         if word_lower in common_pronunciation_issues and len(pronunciation_hints) < 2:
             pronunciation_hints.append(f"'{word}': {common_pronunciation_issues[word_lower]}")
-    
+
     fluency = min(95, max(30, 60 + (min(total_words, 20) * 1.5) - (grammar_errors * 3)))
     confidence = min(95, max(25, 50 + (min(total_words, 15) * 2) + (vocab_ratio * 30) - (marathi_words * 1.5)))
     vocabulary = min(95, max(20, 45 + (vocab_ratio * 50) + (len(set(w.lower() for w in words if w.isalpha())) * 2)))
     grammar = min(95, max(20, 80 - (grammar_errors * 10)))
     pronunciation = min(95, max(30, 75 - (len([w for w in words if w.lower() in common_pronunciation_issues]) * 3)))
-    
+
     feedback_short = ""
     if grammar_errors > 2:
         feedback_short += "Watch your grammar. "
@@ -329,7 +329,7 @@ def analyze_message_metrics(text: str) -> dict:
         feedback_short += "Minor grammar issues. "
     else:
         feedback_short += "Great grammar! "
-    
+
     if marathi_words > english_words and english_words > 0:
         feedback_short += "Try using more English words."
     elif english_words > 0 and english_words > marathi_words:
@@ -338,7 +338,7 @@ def analyze_message_metrics(text: str) -> dict:
         feedback_short += "Try to use some English words."
     else:
         feedback_short += "Nice balance of languages!"
-    
+
     return {
         "fluency": int(fluency),
         "grammar": int(grammar),
@@ -361,7 +361,7 @@ def analyze_message_metrics(text: str) -> dict:
 # ==========================================
 async def extract_text_from_pdf(file_bytes: bytes) -> str:
     extracted_text = ""
-    
+
     if PYMUPDF_SUPPORT:
         try:
             doc = fitz.open(stream=file_bytes, filetype="pdf")
@@ -375,7 +375,7 @@ async def extract_text_from_pdf(file_bytes: bytes) -> str:
                 return extracted_text
         except Exception as e:
             logger.warning(f"PyMuPDF extraction failed: {e}")
-    
+
     if PDF_SUPPORT:
         try:
             pdf_reader = PyPDF2.PdfReader(BytesIO(file_bytes))
@@ -388,7 +388,7 @@ async def extract_text_from_pdf(file_bytes: bytes) -> str:
                 return extracted_text
         except Exception as e:
             logger.warning(f"PyPDF2 extraction failed: {e}")
-    
+
     try:
         import re
         text = file_bytes.decode('utf-8', errors='ignore')
@@ -399,17 +399,17 @@ async def extract_text_from_pdf(file_bytes: bytes) -> str:
             return text
     except Exception as e:
         logger.warning(f"Raw decode failed: {e}")
-    
+
     if not extracted_text.strip():
         raise Exception("No text could be extracted from PDF")
-    
+
     return extracted_text
 
 
 async def extract_text_from_docx(file_bytes: bytes) -> str:
     if not DOCX_SUPPORT:
         raise Exception("python-docx not installed for DOCX support")
-    
+
     try:
         doc = docx.Document(BytesIO(file_bytes))
         extracted_text = "\n".join([para.text for para in doc.paragraphs if para.text.strip()])
@@ -417,11 +417,11 @@ async def extract_text_from_docx(file_bytes: bytes) -> str:
             return extracted_text
     except Exception as e:
         logger.warning(f"DOCX extraction failed: {e}")
-    
+
     try:
         import zipfile
         import xml.etree.ElementTree as ET
-        
+
         with zipfile.ZipFile(BytesIO(file_bytes)) as zip_ref:
             if 'word/document.xml' in zip_ref.namelist():
                 xml_content = zip_ref.read('word/document.xml')
@@ -437,22 +437,22 @@ async def extract_text_from_docx(file_bytes: bytes) -> str:
                     return extracted_text
     except Exception as e:
         logger.warning(f"DOCX zip fallback failed: {e}")
-    
+
     raise Exception("No text could be extracted from DOCX")
 
 
 def generate_fallback_analysis(text: str) -> dict:
-    keywords = ["communication", "team", "leadership", "project", "management", 
+    keywords = ["communication", "team", "leadership", "project", "management",
                 "data", "analysis", "development", "design", "problem", "solving"]
-    
+
     found_keywords = []
     for kw in keywords:
         if kw.lower() in text.lower():
             found_keywords.append(kw.title())
-    
+
     if not found_keywords:
         found_keywords = ["Communication", "Problem Solving", "Teamwork"]
-    
+
     return {
         "extracted_skills": found_keywords[:5],
         "strengths": ["Clear communication", "Good technical foundation", "Team player", "Problem solver"],
@@ -472,7 +472,7 @@ def generate_fallback_analysis(text: str) -> dict:
 
 def generate_fallback_questions(role: str, count: int) -> List[Dict]:
     import random
-    
+
     behavioral_qs = [
         "Tell me about a time you faced a challenge at work and how you overcame it.",
         "Describe a situation where you had to work with a difficult team member.",
@@ -483,7 +483,7 @@ def generate_fallback_questions(role: str, count: int) -> List[Dict]:
         "Describe a project you're most proud of and why.",
         "How do you handle stress and pressure in the workplace?",
     ]
-    
+
     technical_qs = [
         "What's your approach to solving complex problems?",
         "How do you stay updated with the latest technologies?",
@@ -494,7 +494,7 @@ def generate_fallback_questions(role: str, count: int) -> List[Dict]:
         "How do you ensure quality in your work?",
         "What's your approach to debugging and troubleshooting?",
     ]
-    
+
     situational_qs = [
         "How would you handle a tight deadline with limited resources?",
         "What would you do if you disagreed with your manager's decision?",
@@ -503,7 +503,7 @@ def generate_fallback_questions(role: str, count: int) -> List[Dict]:
         "How would you handle a team member who isn't performing?",
         "What would you do if you were given conflicting priorities?",
     ]
-    
+
     culture_qs = [
         "What type of work environment helps you perform best?",
         "How do you handle feedback and criticism?",
@@ -512,7 +512,7 @@ def generate_fallback_questions(role: str, count: int) -> List[Dict]:
         "What values are most important to you in a workplace?",
         "Describe your preferred management style.",
     ]
-    
+
     problem_solving_qs = [
         "How do you approach problems you've never encountered before?",
         "Describe a time you had to think outside the box to solve a problem.",
@@ -520,18 +520,18 @@ def generate_fallback_questions(role: str, count: int) -> List[Dict]:
         "What's your process for making important decisions?",
         "Describe a complex problem you solved and your approach.",
     ]
-    
+
     all_qs = behavioral_qs + technical_qs + situational_qs + culture_qs + problem_solving_qs
     q_types = ["behavioral"] * len(behavioral_qs) + ["technical"] * len(technical_qs) + \
               ["situational"] * len(situational_qs) + ["culture"] * len(culture_qs) + \
               ["problem_solving"] * len(problem_solving_qs)
-    
+
     combined = list(zip(all_qs, q_types))
     random.shuffle(combined)
-    
+
     selected = combined[:count]
     difficulty_levels = ["Beginner", "Intermediate", "Advanced"]
-    
+
     questions = []
     for i, (q, q_type) in enumerate(selected):
         diff = difficulty_levels[i % len(difficulty_levels)]
@@ -546,16 +546,40 @@ def generate_fallback_questions(role: str, count: int) -> List[Dict]:
             "common_mistakes": ["Being too vague", "Not providing specific examples", "Going off-topic"],
             "follow_up_hint": "Could you elaborate on that with a specific example?"
         })
-    
+
     return questions
 
 
 # ==========================================
-# MULTI-PROVIDER LLM FALLBACK EXECUTER
+# LLM JSON EXTRACTION HELPER
+# ==========================================
+def extract_json_from_llm_response(raw: str) -> dict:
+    """Extract JSON from a string that may contain markdown code blocks."""
+    if not raw:
+        return {}
+    # Try to find ```json ... ``` block
+    match = re.search(r'```json\s*([\s\S]*?)\s*```', raw)
+    if match:
+        raw_json = match.group(1)
+    else:
+        # Try to find just a JSON object
+        match = re.search(r'\{[\s\S]*\}', raw)
+        if match:
+            raw_json = match.group(0)
+        else:
+            return {}
+    try:
+        return json.loads(raw_json)
+    except json.JSONDecodeError:
+        return {}
+
+
+# ==========================================
+# MULTI-PROVIDER LLM FALLBACK EXECUTER (UPDATED)
 # ==========================================
 async def call_llm_with_fallback(
-    system_prompt: str, 
-    user_prompt: str, 
+    system_prompt: str,
+    user_prompt: str,
     temperature: float = 0.7
 ) -> dict:
     errors = []
@@ -565,10 +589,10 @@ async def call_llm_with_fallback(
         for model in groq_models:
             try:
                 logger.info(f"⚡ Trying Groq model: {model}")
-                
+
                 truncated_system = system_prompt[:3000] if len(system_prompt) > 3000 else system_prompt
                 truncated_user = user_prompt[:3000] if len(user_prompt) > 3000 else user_prompt
-                
+
                 response = await groq_client.chat.completions.create(
                     model=model,
                     messages=[
@@ -579,9 +603,12 @@ async def call_llm_with_fallback(
                     max_tokens=1500,
                     response_format={"type": "json_object"},
                 )
-                result = json.loads(response.choices[0].message.content)
-                logger.info(f"✅ Groq {model} succeeded!")
-                return result
+                raw = response.choices[0].message.content
+                result = extract_json_from_llm_response(raw)
+                if result:
+                    logger.info(f"✅ Groq {model} succeeded!")
+                    return result
+                errors.append(f"Groq {model} returned invalid JSON: {raw[:100]}")
             except Exception as e:
                 error_msg = str(e)
                 if "429" in error_msg or "rate_limit" in error_msg.lower():
@@ -616,9 +643,12 @@ async def call_llm_with_fallback(
                         "X-Title": "Shaabdh Saathi",
                     },
                 )
-                result = json.loads(response.choices[0].message.content)
-                logger.info(f"✅ OpenRouter {model} succeeded!")
-                return result
+                raw = response.choices[0].message.content
+                result = extract_json_from_llm_response(raw)
+                if result:
+                    logger.info(f"✅ OpenRouter {model} succeeded!")
+                    return result
+                errors.append(f"OpenRouter {model} returned invalid JSON: {raw[:100]}")
             except Exception as e:
                 logger.warning(f"⚠️ OpenRouter error on {model}: {e}")
                 errors.append(f"OpenRouter {model}: {e}")
@@ -637,21 +667,21 @@ async def call_llm_with_fallback(
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite-preview",
         ]
-        
+
         models_to_try = [m for m in gemini_model_priority if m in available_gemini_models]
-        
+
         if not models_to_try:
             models_to_try = [
                 "gemini-flash-lite-latest",
                 "gemini-flash-latest",
                 "gemini-3-flash-preview",
             ]
-        
+
         for model_name in models_to_try:
             try:
                 logger.info(f"⚡ Fallback: Trying Google Gemini ({model_name})...")
                 prompt_combined = f"{system_prompt[:3000]}\n\nUser Input:\n{user_prompt[:3000]}"
-                
+
                 response = gemini_client.models.generate_content(
                     model=model_name,
                     contents=prompt_combined,
@@ -661,9 +691,12 @@ async def call_llm_with_fallback(
                         max_output_tokens=1500,
                     )
                 )
-                result = json.loads(response.text)
-                logger.info(f"✅ Gemini {model_name} succeeded! ({len(result)} keys)")
-                return result
+                raw = response.text
+                result = extract_json_from_llm_response(raw)
+                if result:
+                    logger.info(f"✅ Gemini {model_name} succeeded! ({len(result)} keys)")
+                    return result
+                errors.append(f"Gemini {model_name} returned invalid JSON: {raw[:100]}")
             except Exception as e:
                 error_msg = str(e)
                 if "429" in error_msg or "quota" in error_msg.lower():
@@ -680,6 +713,9 @@ async def call_llm_with_fallback(
     raise Exception(f"All LLM providers failed. Errors: {error_summary}")
 
 
+# ==========================================
+# LIFESPAN
+# ==========================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     yield
@@ -723,6 +759,8 @@ api_router = APIRouter(prefix="/api")
 # PYDANTIC MODELS
 # ==========================================
 class UserLogin(BaseModel):
+    # Allow extra fields so frontend payloads with additional keys don't fail
+    model_config = ConfigDict(extra='allow')
     name: str
     contact: str
 
@@ -819,855 +857,7 @@ async def health_check():
 
 
 # ==========================================
-# GROQ VOICE TALK BOT ENDPOINT
-# ==========================================
-@api_router.post("/groq-voice-talk-bot")
-async def groq_voice_talk_bot(
-    audio: UploadFile = File(...),
-    history: str = Form(default="[]")
-):
-    try:
-        audio_bytes = await audio.read()
-        filename = audio.filename or "voice_note.webm"
-        logger.info(f"🎙️ Received audio file: {filename}, Size: {len(audio_bytes)} bytes")
-
-        user_spoken_text = None
-        transcription_method = None
-
-        if FASTER_WHISPER_AVAILABLE and local_whisper:
-            try:
-                user_spoken_text = await transcribe_locally(audio_bytes)
-                if user_spoken_text and len(user_spoken_text.strip()) > 0:
-                    transcription_method = "faster-whisper"
-                    logger.info(f"✅ faster-whisper: '{user_spoken_text}'")
-            except Exception as e:
-                logger.warning(f"⚠️ faster-whisper failed: {e}")
-                user_spoken_text = None
-
-        if not user_spoken_text or len(user_spoken_text.strip()) == 0:
-            try:
-                import speech_recognition as sr
-                import tempfile
-                import os
-                import subprocess
-                
-                with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_webm:
-                    temp_webm.write(audio_bytes)
-                    webm_path = temp_webm.name
-                
-                wav_path = webm_path.replace('.webm', '.wav')
-                
-                try:
-                    from pydub import AudioSegment
-                    audio_segment = AudioSegment.from_file(webm_path, format="webm")
-                    audio_segment.export(wav_path, format="wav")
-                except:
-                    try:
-                        subprocess.run(['ffmpeg', '-i', webm_path, wav_path], 
-                                     capture_output=True, check=True)
-                    except:
-                        wav_path = webm_path
-                
-                recognizer = sr.Recognizer()
-                with sr.AudioFile(wav_path) as source:
-                    recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                    audio_data = recognizer.record(source)
-                    
-                    languages = ["en-US", "mr-IN", "hi-IN", "en-IN"]
-                    for lang in languages:
-                        try:
-                            user_spoken_text = recognizer.recognize_google(audio_data, language=lang)
-                            if user_spoken_text and len(user_spoken_text.strip()) > 0:
-                                transcription_method = f"google-speech-{lang}"
-                                logger.info(f"✅ Google Speech ({lang}): '{user_spoken_text}'")
-                                break
-                        except:
-                            continue
-                
-                try:
-                    os.unlink(webm_path)
-                    if os.path.exists(wav_path) and wav_path != webm_path:
-                        os.unlink(wav_path)
-                except:
-                    pass
-                    
-            except Exception as e:
-                logger.warning(f"⚠️ Google Speech failed: {e}")
-                user_spoken_text = None
-
-        if not user_spoken_text or len(user_spoken_text.strip()) == 0:
-            try:
-                import vosk
-                import wave
-                import json
-                import tempfile
-                import os
-                import urllib.request
-                import zipfile
-                
-                model_path = "models/vosk-model-small-en-us-0.15"
-                if not os.path.exists(model_path):
-                    logger.info("📥 Downloading Vosk model...")
-                    os.makedirs("models", exist_ok=True)
-                    url = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
-                    zip_path = "models/vosk-model.zip"
-                    urllib.request.urlretrieve(url, zip_path)
-                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                        zip_ref.extractall("models")
-                    os.remove(zip_path)
-                    logger.info("✅ Vosk model downloaded!")
-                
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
-                    temp_audio.write(audio_bytes)
-                    temp_path = temp_audio.name
-                
-                model = vosk.Model(model_path)
-                rec = vosk.KaldiRecognizer(model, 16000)
-                
-                wf = wave.open(temp_path, "rb")
-                full_text = []
-                while True:
-                    data = wf.readframes(4000)
-                    if len(data) == 0:
-                        break
-                    if rec.AcceptWaveform(data):
-                        result = json.loads(rec.Result())
-                        text = result.get("text", "")
-                        if text:
-                            full_text.append(text)
-                
-                user_spoken_text = " ".join(full_text)
-                
-                try:
-                    os.unlink(temp_path)
-                except:
-                    pass
-                
-                if user_spoken_text and len(user_spoken_text.strip()) > 0:
-                    transcription_method = "vosk"
-                    logger.info(f"✅ Vosk: '{user_spoken_text}'")
-                    
-            except Exception as e:
-                logger.warning(f"⚠️ Vosk failed: {e}")
-                user_spoken_text = None
-
-        if not user_spoken_text or len(user_spoken_text.strip()) == 0:
-            logger.error("❌ All transcription methods failed")
-            return {
-                "reply": "I couldn't hear you clearly. Please type your message.",
-                "feedback_mr": "कृपया तुमचा संदेश टाइप करा.",
-                "soft_skill_tip": "Type your message clearly.",
-                "transcribed_text": "",
-                "method": "none"
-            }
-
-        conversation_history = []
-        try:
-            if history and history != "[]":
-                conversation_history = json.loads(history)
-        except Exception:
-            conversation_history = []
-
-        history_formatted = "\n".join([
-            f"{msg.get('sender', 'user').upper()}: {msg.get('text', '')}" 
-            for msg in conversation_history[-10:]
-        ])
-
-        system_prompt = (
-            "You are a warm, patient English conversation partner. "
-            "Reply with simple English and ask one follow-up question. "
-            "Provide encouragement in Marathi. "
-            "Return JSON: {\"reply\": \"Simple response with follow-up\", "
-            "\"feedback_mr\": \"Encouragement in Marathi\", "
-            "\"soft_skill_tip\": \"Brief tip\"}"
-        )
-        
-        user_prompt = f"History:\n{history_formatted}\n\nUser said: '{user_spoken_text}'"
-
-        result = await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.7)
-        
-        result.setdefault("feedback_mr", "तुमचा प्रयत्न खूप छान आहे! असेच बोलत राहा.")
-        result.setdefault("soft_skill_tip", "Practice speaking slowly and clearly.")
-        result["transcribed_text"] = user_spoken_text
-        result["method"] = transcription_method or "unknown"
-        
-        return result
-
-    except Exception as e:
-        logger.error(f"❌ Error in groq-voice-talk-bot: {e}")
-        return {
-            "reply": "Voice processing error. Please type your message.",
-            "feedback_mr": "कृपया तुमचा संदेश टाइप करा.",
-            "soft_skill_tip": "Type your message clearly.",
-            "transcribed_text": "",
-            "method": "error"
-        }
-
-
-# ==========================================
-# INTERVIEW PREPARATION ENDPOINTS (all your existing ones)
-# ==========================================
-@api_router.post("/interview/analyze-resume")
-async def analyze_resume(
-    file: UploadFile = File(None),
-    resume_text: str = Form(None),
-    job_description: str = Form(""),
-    user_id: str = Form(None)
-):
-    try:
-        extracted_text = ""
-        file_name = file.filename if file else None
-        
-        if file:
-            logger.info(f"📄 Processing resume file: {file_name}")
-            file_bytes = await file.read()
-            
-            if file_name and file_name.lower().endswith('.txt'):
-                try:
-                    extracted_text = file_bytes.decode('utf-8', errors='ignore')
-                    logger.info(f"✅ Extracted {len(extracted_text)} chars from TXT")
-                except Exception as e:
-                    logger.error(f"TXT decode error: {e}")
-                    raise HTTPException(status_code=400, detail="Could not read text file")
-                
-            elif file_name and file_name.lower().endswith('.pdf'):
-                extracted_text = await extract_text_from_pdf(file_bytes)
-                if not extracted_text or not extracted_text.strip():
-                    raise HTTPException(
-                        status_code=400,
-                        detail="No text could be extracted from the PDF. Please ensure it's a text-based PDF (not scanned)."
-                    )
-                logger.info(f"✅ Extracted {len(extracted_text)} chars from PDF")
-                
-            elif file_name and file_name.lower().endswith(('.doc', '.docx')):
-                extracted_text = await extract_text_from_docx(file_bytes)
-                if not extracted_text or not extracted_text.strip():
-                    raise HTTPException(
-                        status_code=400,
-                        detail="No text could be extracted from the DOCX file."
-                    )
-                logger.info(f"✅ Extracted {len(extracted_text)} chars from DOCX")
-                
-            else:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Unsupported file type: {file_name}. Please upload PDF, DOCX, or TXT."
-                )
-            
-            if not extracted_text or not extracted_text.strip():
-                raise HTTPException(
-                    status_code=400,
-                    detail="No text could be extracted from the file. Please ensure it's a valid document."
-                )
-            
-        elif resume_text:
-            extracted_text = resume_text
-            logger.info(f"📝 Received text input: {len(extracted_text)} chars")
-            
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail="Please provide either a file upload or resume_text"
-            )
-        
-        resume_analysis_text = extracted_text[:3000]
-        jd_text = job_description or ""
-        if len(jd_text) > 1500:
-            jd_text = jd_text[:1500] + "..."
-        
-        system_prompt = """You are an expert ATS resume reviewer and career coach. 
-        Analyze the resume and provide structured, actionable feedback.
-        
-        IMPORTANT: Return ONLY valid JSON with these exact keys:
-        - extracted_skills: array of top skills found
-        - strengths: array of 3-4 key strengths
-        - weaknesses: array of 3-4 areas for improvement
-        - ats_score: number between 0-100
-        - missing_keywords: array of important keywords missing
-        - improvement_suggestions: array of objects with "section" and "suggestion"
-        - formatting_tips: array of formatting suggestions
-        - overall_rating: string ("Excellent", "Good", "Average", "Poor")
-        - summary_feedback: string with overall feedback
-        
-        Keep each item short and actionable. Maximum 4 items per array.
-        """
-        
-        user_prompt = f"""
-        Resume Content:
-        {resume_analysis_text}
-        
-        {f"Job Description (for context): {jd_text}" if jd_text else ""}
-        
-        Provide structured feedback in valid JSON format.
-        """
-        
-        try:
-            result = await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.3)
-        except Exception as llm_err:
-            logger.error(f"LLM analysis failed: {llm_err}")
-            result = generate_fallback_analysis(extracted_text)
-        
-        result.setdefault("extracted_skills", ["Communication", "Problem Solving", "Teamwork"])
-        result.setdefault("strengths", ["Clear communication", "Good technical foundation", "Team player"])
-        result.setdefault("weaknesses", ["Could provide more specific examples", "Missing quantifiable achievements"])
-        result.setdefault("ats_score", 75)
-        result.setdefault("missing_keywords", ["data analysis", "project management", "leadership"])
-        result.setdefault("improvement_suggestions", [
-            {"section": "Experience", "suggestion": "Add specific metrics and achievements"},
-            {"section": "Skills", "suggestion": "Include more relevant technical skills"}
-        ])
-        result.setdefault("formatting_tips", ["Use bullet points for readability", "Keep consistent formatting"])
-        result.setdefault("overall_rating", "Good")
-        result.setdefault("summary_feedback", "Resume shows good potential. Consider adding more specific metrics and tailoring to the job description.")
-        
-        if user_id:
-            try:
-                await db.interview_data.update_one(
-                    {"user_id": user_id},
-                    {"$set": {
-                        "resume_analysis": result,
-                        "resume_text": extracted_text[:5000],
-                        "resume_file_name": file_name,
-                        "job_description": job_description or "",
-                        "updated_at": datetime.now(timezone.utc).isoformat()
-                    }},
-                    upsert=True
-                )
-                logger.info(f"✅ Saved interview data for user: {user_id}")
-            except Exception as db_err:
-                logger.error(f"DB save error: {db_err}")
-        
-        result["extracted_text"] = extracted_text[:2000]
-        return result
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error in resume analysis: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@api_router.post("/interview/generate-questions")
-async def generate_interview_questions(payload: Dict[str, Any]):
-    try:
-        resume_text = payload.get("resume_text", "")[:2000]
-        jd_text = payload.get("job_description", "")[:1500]
-        level = payload.get("level", 1)
-        question_count = min(payload.get("question_count", 12), 15)
-        user_id = payload.get("user_id")
-        
-        role = "General"
-        if jd_text:
-            lines = jd_text.split('\n')[:5]
-            for line in lines:
-                clean_line = line.strip()
-                if any(kw in clean_line.lower() for kw in ['looking for', 'seeking', 'role', 'position', 'require']):
-                    if len(clean_line) > 10:
-                        role = clean_line[:80]
-                        break
-        
-        types_required = {
-            "behavioral": max(2, question_count // 4),
-            "technical": max(2, question_count // 4),
-            "situational": max(1, question_count // 5),
-            "culture": max(1, question_count // 6),
-            "problem_solving": max(1, question_count // 5)
-        }
-        
-        total_assigned = sum(types_required.values())
-        if total_assigned < question_count:
-            remaining = question_count - total_assigned
-            types_required["behavioral"] += remaining // 2
-            types_required["technical"] += remaining - (remaining // 2)
-        
-        system_prompt = f"""You are a senior hiring manager. Generate interview questions for a {role} role.
-        Question distribution: Behavioral: {types_required['behavioral']}, Technical: {types_required['technical']}, 
-        Situational: {types_required['situational']}, Culture: {types_required['culture']}, 
-        Problem Solving: {types_required['problem_solving']}
-        
-        Return ONLY valid JSON with:
-        {{"questions": [
-            {{"id": "q1", "type": "behavioral", "question": "...", "category": "...", 
-              "difficulty": "Beginner/Intermediate/Advanced", 
-              "sample_answer": "...", 
-              "key_points": ["p1","p2"], 
-              "common_mistakes": ["m1"], 
-              "follow_up_hint": "..."}}
-        ], "summary": "Brief overview of question set"}}"""
-        
-        user_prompt = f"""Role: {role}
-        Skills from resume: {resume_text[:500] if resume_text else 'Not provided'}
-        Job Requirements: {jd_text[:500] if jd_text else 'Not provided'}
-        Level: {level}
-        Generate {question_count} interview questions in valid JSON format.
-        Make questions specific to the role and tailored to the candidate's background.
-        """
-        
-        try:
-            result = await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.85)
-        except Exception as llm_err:
-            logger.error(f"LLM question generation failed: {llm_err}")
-            fallback_questions = generate_fallback_questions(role, question_count)
-            result = {"questions": fallback_questions, "summary": "Generated fallback questions"}
-        
-        if "questions" not in result or not result["questions"]:
-            fallback_questions = generate_fallback_questions(role, question_count)
-            result = {"questions": fallback_questions, "summary": "Generated fallback questions"}
-        
-        if len(result["questions"]) > question_count:
-            result["questions"] = result["questions"][:question_count]
-        
-        for q in result["questions"]:
-            q.setdefault("id", f"q{result['questions'].index(q) + 1}")
-            q.setdefault("type", "behavioral")
-            q.setdefault("difficulty", "Intermediate")
-            q.setdefault("sample_answer", "Provide a structured answer using STAR method.")
-            q.setdefault("key_points", ["Clear communication", "Specific example"])
-            q.setdefault("common_mistakes", ["Being too vague"])
-            q.setdefault("follow_up_hint", "Can you elaborate on that?")
-            q.setdefault("category", role if role != "General" else "General")
-        
-        if user_id:
-            try:
-                await db.interview_data.update_one(
-                    {"user_id": user_id},
-                    {"$set": {
-                        "generated_questions": result["questions"],
-                        "questions_summary": result.get("summary", ""),
-                        "question_count": len(result["questions"]),
-                        "updated_at": datetime.now(timezone.utc).isoformat()
-                    }},
-                    upsert=True
-                )
-            except Exception as db_err:
-                logger.error(f"DB save error: {db_err}")
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"Error generating questions: {e}")
-        return {
-            "questions": generate_fallback_questions("General", 10),
-            "summary": "Generated fallback questions due to error"
-        }
-
-
-@api_router.post("/interview/practice")
-async def interview_practice(payload: InterviewPracticeRequest):
-    try:
-        question = payload.question
-        user_answer = payload.user_answer
-        context = payload.context or {}
-        
-        conversation = context.get("conversation", [])
-        
-        history_text = "\n".join([
-            f"Interviewer: {msg.get('question', '')}" if msg.get('role') == 'interviewer' 
-            else f"Candidate: {msg.get('answer', '')}"
-            for msg in conversation[-5:]
-        ])
-        
-        system_prompt = """
-        You are an experienced HR interviewer and career coach. 
-        Evaluate the candidate's answer and provide detailed, actionable feedback.
-        Return a JSON object with the following keys:
-        - "evaluation": A short overall assessment (2-3 sentences).
-        - "strengths": List of 2-4 specific strengths of the answer.
-        - "improvements": List of 2-4 specific areas that need improvement.
-        - "score": A numeric score from 0-100.
-        - "follow_up_question": A natural follow-up question to continue the conversation.
-        - "tip": One practical tip to improve future answers.
-        - "key_points_covered": List of 2-3 key points the candidate successfully addressed.
-        - "communication_style": Brief feedback on clarity, structure, confidence, and use of language.
-        - "suggested_improvement": A concrete suggestion on how to improve the answer.
-        Keep the feedback constructive and encouraging.
-        """
-        
-        user_prompt = f"""
-        Question: {question}
-        Answer: {user_answer}
-        {f"History of previous Q&A (for context):\n{history_text}" if history_text else ""}
-        Provide a thorough evaluation in valid JSON.
-        """
-        
-        result = await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.7)
-        
-        result.setdefault("evaluation", "Good attempt. Keep practising!")
-        result.setdefault("strengths", ["Clear communication"])
-        result.setdefault("improvements", ["Add more specific examples"])
-        result.setdefault("score", 70)
-        result.setdefault("follow_up_question", "Can you elaborate on that?")
-        result.setdefault("tip", "Use the STAR method for behavioural questions.")
-        result.setdefault("key_points_covered", ["Addressed the main question", "Showed understanding of the problem"])
-        result.setdefault("communication_style", "Clear and confident, but could be more structured.")
-        result.setdefault("suggested_improvement", "Try to quantify your achievements and use the STAR framework.")
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"Error in interview practice: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@api_router.post("/interview/feedback")
-async def interview_feedback(payload: InterviewFeedbackRequest):
-    try:
-        conversation = payload.conversation
-        job_role = payload.job_role or "General"
-        level = payload.level or 1
-        
-        conversation_text = "\n".join([
-            f"Q: {msg.get('question', '')}\nA: {msg.get('answer', '')}"
-            for msg in conversation
-        ])
-        
-        system_prompt = """
-        You are a senior career coach. Analyze the interview and provide feedback.
-        Return JSON with: overall_score, summary, strengths, weaknesses, communication, 
-        technical_skills, behavioral_skills, improvement_areas, tips, 
-        recommended_resources, confidence_boost, next_steps.
-        """
-        
-        user_prompt = f"""
-        Role: {job_role}
-        Level: {level}
-        Conversation: {conversation_text[:3000]}
-        Provide comprehensive feedback.
-        """
-        
-        result = await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.3)
-        
-        result.setdefault("overall_score", 70)
-        result.setdefault("summary", "Good performance with room for improvement.")
-        result.setdefault("strengths", ["Good communication"])
-        result.setdefault("weaknesses", ["Need more specific examples"])
-        result.setdefault("communication", {"clarity": "Good", "confidence": "Good", "structure": "Could improve"})
-        result.setdefault("technical_skills", "Shows basic understanding")
-        result.setdefault("behavioral_skills", "Good but need more STAR examples")
-        result.setdefault("improvement_areas", [
-            {"area": "Specific examples", "suggestion": "Use STAR method", "priority": "High"}
-        ])
-        result.setdefault("tips", ["Practice your answers out loud"])
-        result.setdefault("recommended_resources", [
-            {"topic": "STAR Method", "suggestion": "Learn to structure answers"}
-        ])
-        result.setdefault("confidence_boost", "You're doing great! Keep practicing.")
-        result.setdefault("next_steps", ["Review feedback", "Practice more", "Prepare questions"])
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"Error in interview feedback: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@api_router.get("/interview/session/{user_id}")
-async def get_interview_session(user_id: str):
-    try:
-        data = await db.interview_data.find_one({"user_id": user_id})
-        if not data:
-            return {
-                "resume_analysis": None,
-                "generated_questions": [],
-                "practice_sessions": [],
-                "feedback_history": [],
-                "resume_text": "",
-                "job_description": "",
-                "has_data": False
-            }
-        
-        data.pop("_id", None)
-        data["has_data"] = True
-        return data
-        
-    except Exception as e:
-        logger.error(f"Error fetching interview session: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@api_router.post("/interview/save-session")
-async def save_interview_session(payload: Dict[str, Any]):
-    try:
-        user_id = payload.get("user_id")
-        if not user_id:
-            raise HTTPException(status_code=400, detail="user_id required")
-        
-        session_data = {
-            "date": datetime.now(timezone.utc).isoformat(),
-            "questions": payload.get("questions", []),
-            "answers": payload.get("answers", []),
-            "feedback": payload.get("feedback", {}),
-            "score": payload.get("score", 0)
-        }
-        
-        await db.interview_data.update_one(
-            {"user_id": user_id},
-            {
-                "$push": {"practice_sessions": session_data},
-                "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
-            },
-            upsert=True
-        )
-        
-        return {"success": True, "message": "Session saved successfully"}
-        
-    except Exception as e:
-        logger.error(f"Error saving interview session: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@api_router.post("/interview/analyze-jd")
-async def analyze_jd(payload: Dict[str, Any]):
-    try:
-        jd_text = payload.get("job_description", "")
-        resume_text = payload.get("resume_text", "Resume not provided")
-        user_id = payload.get("user_id")
-        
-        if not jd_text or not jd_text.strip():
-            raise HTTPException(status_code=400, detail="Job Description is required")
-        
-        if len(jd_text) > 1500:
-            jd_text = jd_text[:1500] + "..."
-        if len(resume_text) > 2000:
-            resume_text = resume_text[:2000] + "..."
-        
-        system_prompt = """You are an expert ATS resume reviewer and career coach. 
-        Analyze the Job Description and provide structured feedback on how well the resume matches.
-        
-        IMPORTANT: Return ONLY valid JSON with these exact keys:
-        - extracted_skills: array of key skills required in the JD
-        - strengths: array of 3-4 strengths (how resume matches JD)
-        - weaknesses: array of 3-4 gaps (what's missing)
-        - ats_score: number between 0-100 (match percentage)
-        - missing_keywords: array of important keywords from JD missing in resume
-        - improvement_suggestions: array of objects with "section" and "suggestion"
-        - formatting_tips: array of formatting suggestions
-        - overall_rating: string ("Excellent", "Good", "Average", "Poor")
-        - summary_feedback: string with overall feedback
-        
-        Keep each item short and actionable. Maximum 4 items per array.
-        """
-        
-        user_prompt = f"""
-        Job Description:
-        {jd_text}
-        
-        Resume (for comparison):
-        {resume_text}
-        
-        Provide structured feedback in valid JSON format.
-        """
-        
-        try:
-            result = await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.3)
-        except Exception as llm_err:
-            logger.error(f"LLM analysis failed: {llm_err}")
-            result = generate_fallback_analysis(jd_text)
-        
-        result.setdefault("extracted_skills", ["Communication", "Problem Solving", "Teamwork"])
-        result.setdefault("strengths", ["Clear communication", "Good technical foundation"])
-        result.setdefault("weaknesses", ["Could provide more specific examples", "Missing quantifiable achievements"])
-        result.setdefault("ats_score", 65)
-        result.setdefault("missing_keywords", ["data analysis", "project management", "leadership"])
-        result.setdefault("improvement_suggestions", [
-            {"section": "Experience", "suggestion": "Add specific metrics and achievements"},
-            {"section": "Skills", "suggestion": "Include more relevant technical skills"}
-        ])
-        result.setdefault("formatting_tips", ["Use bullet points for readability", "Keep consistent formatting"])
-        result.setdefault("overall_rating", "Average")
-        result.setdefault("summary_feedback", "The resume needs better alignment with the job description.")
-        
-        if user_id:
-            try:
-                await db.interview_data.update_one(
-                    {"user_id": user_id},
-                    {"$set": {
-                        "resume_analysis": result,
-                        "job_description": payload.get("job_description", ""),
-                        "updated_at": datetime.now(timezone.utc).isoformat()
-                    }},
-                    upsert=True
-                )
-                logger.info(f"✅ Saved JD analysis for user: {user_id}")
-            except Exception as db_err:
-                logger.error(f"DB save error: {db_err}")
-        
-        return result
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error in JD analysis: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@api_router.post("/interview/voice-transcribe")
-async def interview_voice_transcribe(
-    audio: UploadFile = File(...),
-    history: str = Form(default="[]")
-):
-    try:
-        audio_bytes = await audio.read()
-        filename = audio.filename or "voice_note.webm"
-        logger.info(f"🎙️ Interview voice: Received audio file: {filename}, Size: {len(audio_bytes)} bytes")
-
-        user_spoken_text = None
-        transcription_method = None
-
-        if FASTER_WHISPER_AVAILABLE and local_whisper:
-            try:
-                user_spoken_text = await transcribe_locally(audio_bytes)
-                if user_spoken_text and len(user_spoken_text.strip()) > 0:
-                    transcription_method = "faster-whisper"
-                    logger.info(f"✅ faster-whisper: '{user_spoken_text}'")
-            except Exception as e:
-                logger.warning(f"⚠️ faster-whisper failed: {e}")
-                user_spoken_text = None
-
-        if not user_spoken_text or len(user_spoken_text.strip()) == 0:
-            try:
-                import speech_recognition as sr
-                import tempfile
-                import os
-                import subprocess
-                from pydub import AudioSegment
-                
-                with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_webm:
-                    temp_webm.write(audio_bytes)
-                    webm_path = temp_webm.name
-                
-                wav_path = webm_path.replace('.webm', '.wav')
-                
-                try:
-                    audio_segment = AudioSegment.from_file(webm_path, format="webm")
-                    audio_segment.export(wav_path, format="wav")
-                except Exception as e:
-                    logger.warning(f"pydub conversion failed: {e}")
-                    try:
-                        subprocess.run(
-                            ['ffmpeg', '-i', webm_path, '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', wav_path],
-                            capture_output=True, check=True
-                        )
-                    except:
-                        logger.warning("ffmpeg conversion failed, using raw")
-                        wav_path = webm_path
-                
-                recognizer = sr.Recognizer()
-                with sr.AudioFile(wav_path) as source:
-                    recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                    audio_data = recognizer.record(source)
-                    
-                    languages = ["en-US", "en-IN", "mr-IN", "hi-IN"]
-                    for lang in languages:
-                        try:
-                            user_spoken_text = recognizer.recognize_google(audio_data, language=lang)
-                            if user_spoken_text and len(user_spoken_text.strip()) > 0:
-                                transcription_method = f"google-speech-{lang}"
-                                logger.info(f"✅ Google Speech ({lang}): '{user_spoken_text}'")
-                                break
-                        except Exception as e:
-                            logger.warning(f"Google Speech {lang} failed: {e}")
-                            continue
-                
-                try:
-                    os.unlink(webm_path)
-                    if os.path.exists(wav_path) and wav_path != webm_path:
-                        os.unlink(wav_path)
-                except:
-                    pass
-                    
-            except Exception as e:
-                logger.warning(f"⚠️ Google Speech failed: {e}")
-                user_spoken_text = None
-
-        if not user_spoken_text or len(user_spoken_text.strip()) == 0:
-            try:
-                import vosk
-                import wave
-                import json
-                import tempfile
-                import os
-                from pydub import AudioSegment
-                
-                model_path = "models/vosk-model-small-en-us-0.15"
-                if not os.path.exists(model_path):
-                    logger.info("📥 Downloading Vosk model...")
-                    os.makedirs("models", exist_ok=True)
-                    import urllib.request
-                    import zipfile
-                    url = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
-                    zip_path = "models/vosk-model.zip"
-                    urllib.request.urlretrieve(url, zip_path)
-                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                        zip_ref.extractall("models")
-                    os.remove(zip_path)
-                    logger.info("✅ Vosk model downloaded!")
-                
-                with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_webm:
-                    temp_webm.write(audio_bytes)
-                    webm_path = temp_webm.name
-                
-                wav_path = webm_path.replace('.webm', '.wav')
-                audio_segment = AudioSegment.from_file(webm_path, format="webm")
-                audio_segment = audio_segment.set_frame_rate(16000).set_channels(1)
-                audio_segment.export(wav_path, format="wav")
-                
-                model = vosk.Model(model_path)
-                rec = vosk.KaldiRecognizer(model, 16000)
-                
-                wf = wave.open(wav_path, "rb")
-                full_text = []
-                while True:
-                    data = wf.readframes(4000)
-                    if len(data) == 0:
-                        break
-                    if rec.AcceptWaveform(data):
-                        result = json.loads(rec.Result())
-                        text = result.get("text", "")
-                        if text:
-                            full_text.append(text)
-                
-                user_spoken_text = " ".join(full_text)
-                
-                try:
-                    os.unlink(webm_path)
-                    os.unlink(wav_path)
-                except:
-                    pass
-                
-                if user_spoken_text and len(user_spoken_text.strip()) > 0:
-                    transcription_method = "vosk"
-                    logger.info(f"✅ Vosk: '{user_spoken_text}'")
-                    
-            except Exception as e:
-                logger.warning(f"⚠️ Vosk failed: {e}")
-                user_spoken_text = None
-
-        if not user_spoken_text or len(user_spoken_text.strip()) == 0:
-            logger.error("❌ All transcription methods failed")
-            return {
-                "transcribed_text": "",
-                "success": False,
-                "error": "Could not transcribe voice. Please type your answer."
-            }
-        
-        return {
-            "transcribed_text": user_spoken_text,
-            "success": True,
-            "method": transcription_method or "unknown"
-        }
-
-    except Exception as e:
-        logger.error(f"❌ Error in interview voice transcribe: {e}")
-        return {
-            "transcribed_text": "",
-            "success": False,
-            "error": "Internal server error"
-        }
-
-
-# ==========================================
-# AUTH & USER ENDPOINTS
+# AUTH & USER ENDPOINTS (UPDATED)
 # ==========================================
 @api_router.post("/auth/login")
 async def login(user: UserLogin):
@@ -1716,7 +906,64 @@ async def get_current_user(x_user_id: Optional[str] = Header(None)):
 
 
 # ==========================================
-# CHAPTER GENERATION ENDPOINTS
+# DIALOGUES ENDPOINTS (BOTH NAMES)
+# ==========================================
+# The /dialogues route (as previously used)
+@api_router.get("/dialogues")
+async def get_dialogues(page: int = Query(1, ge=1)):
+    try:
+        dialogues = await generate_dialogues_list(req_page=page, force_fresh=True)
+        return {"dialogues": dialogues}
+    except Exception as e:
+        logger.error(f"Error in dialogues: {e}")
+        return {"dialogues": []}
+
+
+# The /hollywood-dialogues route (new)
+@api_router.get("/hollywood-dialogues")
+async def fetch_hollywood_dialogues_get(page: int = Query(1)):
+    try:
+        dialogues = await generate_dialogues_list(req_page=page, force_fresh=True)
+        return {"dialogues": dialogues}
+    except Exception as e:
+        logger.error(f"Error in dialogues GET: {e}")
+        return {"dialogues": []}
+
+
+@api_router.post("/hollywood-dialogues")
+async def fetch_hollywood_dialogues_post(payload: Optional[DialoguesRequest] = None):
+    try:
+        req_page = payload.page if payload and payload.page else random.randint(1, 100)
+        dialogues = await generate_dialogues_list(req_page=req_page, force_fresh=True)
+        return {"dialogues": dialogues}
+    except Exception as e:
+        logger.error(f"Error in dialogues POST: {e}")
+        return {"dialogues": []}
+
+
+# ==========================================
+# GENERATE PASSAGE (UPDATED WITH ROBUST FALLBACK)
+# ==========================================
+@api_router.post("/generate-passage")
+async def generate_passage_legacy(payload: Optional[Dict[str, Any]] = None):
+    try:
+        data = payload or {}
+        user_id = data.get("user_id", "default_user")
+        domain = data.get("domain", data.get("topic", "Finance & Wealth"))
+        chapter_number = int(data.get("chapter_number", data.get("chapter", 1)))
+
+        return await process_chapter_generation(
+            user_id=user_id,
+            raw_domain=domain,
+            chapter_number=chapter_number
+        )
+    except Exception as e:
+        logger.error(f"Error in generate-passage: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ==========================================
+# READING CHAPTER (REST) ENDPOINT
 # ==========================================
 @api_router.post("/reading/chapter")
 async def get_or_generate_chapter(payload: ChapterGenerationRequest):
@@ -1731,27 +978,785 @@ async def get_or_generate_chapter(payload: ChapterGenerationRequest):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api_router.post("/generate-passage")
-async def generate_passage_legacy(payload: Optional[Dict[str, Any]] = None):
+# ==========================================
+# PROGRESS TRACKING ENDPOINT
+# ==========================================
+@api_router.post("/progress/complete")
+async def complete_progress(
+    payload: Optional[ProgressUpdateRequest] = None,
+    skill: Optional[str] = Query(None),
+    xp: Optional[int] = Query(None),
+    words: Optional[int] = Query(0),
+    user_id: Optional[str] = Query(None),
+):
+    target_skill = payload.skill if payload else skill
+    target_xp = payload.xp if payload else (xp or 0)
+    target_user_id = payload.user_id if payload else user_id
+
+    if not target_skill:
+        raise HTTPException(status_code=400, detail="Skill parameter is required")
+
     try:
-        data = payload or {}
-        user_id = data.get("user_id", "default_user")
-        domain = data.get("domain", data.get("topic", "Finance & Wealth"))
-        chapter_number = int(data.get("chapter_number", data.get("chapter", 1)))
-        
-        return await process_chapter_generation(
-            user_id=user_id,
-            raw_domain=domain,
-            chapter_number=chapter_number
+        if not target_user_id:
+            users = await db.users.find({}).to_list(1)
+            if users:
+                target_user_id = users[0]["id"]
+            else:
+                raise HTTPException(status_code=404, detail="No user found")
+
+        user = await db.users.find_one({"id": target_user_id})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        new_xp = user.get("xp", 0) + target_xp
+        new_level = user.get("level", 1)
+        if new_xp >= new_level * 150:
+            new_level += 1
+
+        skills = user.get("skills", {})
+        if target_skill in skills:
+            skills[target_skill] = min(100, skills.get(target_skill, 0) + 5)
+
+        await db.users.update_one(
+            {"id": target_user_id},
+            {
+                "$set": {
+                    "xp": new_xp,
+                    "level": new_level,
+                    "skills": skills,
+                    "streak": user.get("streak", 0) + 1,
+                    "last_active": datetime.now(timezone.utc).isoformat(),
+                }
+            },
         )
+
+        updated = await db.users.find_one({"id": target_user_id})
+        updated.pop("_id", None)
+        return {"user": updated, "new_badges": []}
     except Exception as e:
-        logger.error(f"Error in generate-passage legacy route: {e}")
+        logger.error(f"Progress error: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ==========================================
+# INTERVIEW PREPARATION ENDPOINTS
+# ==========================================
+@api_router.post("/interview/analyze-resume")
+async def analyze_resume(
+    file: UploadFile = File(None),
+    resume_text: str = Form(None),
+    job_description: str = Form(""),
+    user_id: str = Form(None)
+):
+    try:
+        extracted_text = ""
+        file_name = file.filename if file else None
+
+        if file:
+            logger.info(f"📄 Processing resume file: {file_name}")
+            file_bytes = await file.read()
+
+            if file_name and file_name.lower().endswith('.txt'):
+                try:
+                    extracted_text = file_bytes.decode('utf-8', errors='ignore')
+                    logger.info(f"✅ Extracted {len(extracted_text)} chars from TXT")
+                except Exception as e:
+                    logger.error(f"TXT decode error: {e}")
+                    raise HTTPException(status_code=400, detail="Could not read text file")
+
+            elif file_name and file_name.lower().endswith('.pdf'):
+                extracted_text = await extract_text_from_pdf(file_bytes)
+                if not extracted_text or not extracted_text.strip():
+                    raise HTTPException(
+                        status_code=400,
+                        detail="No text could be extracted from the PDF. Please ensure it's a text-based PDF (not scanned)."
+                    )
+                logger.info(f"✅ Extracted {len(extracted_text)} chars from PDF")
+
+            elif file_name and file_name.lower().endswith(('.doc', '.docx')):
+                extracted_text = await extract_text_from_docx(file_bytes)
+                if not extracted_text or not extracted_text.strip():
+                    raise HTTPException(
+                        status_code=400,
+                        detail="No text could be extracted from the DOCX file."
+                    )
+                logger.info(f"✅ Extracted {len(extracted_text)} chars from DOCX")
+
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported file type: {file_name}. Please upload PDF, DOCX, or TXT."
+                )
+
+            if not extracted_text or not extracted_text.strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail="No text could be extracted from the file. Please ensure it's a valid document."
+                )
+
+        elif resume_text:
+            extracted_text = resume_text
+            logger.info(f"📝 Received text input: {len(extracted_text)} chars")
+
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Please provide either a file upload or resume_text"
+            )
+
+        resume_analysis_text = extracted_text[:3000]
+        jd_text = job_description or ""
+        if len(jd_text) > 1500:
+            jd_text = jd_text[:1500] + "..."
+
+        system_prompt = """You are an expert ATS resume reviewer and career coach. 
+        Analyze the resume and provide structured, actionable feedback.
+
+        IMPORTANT: Return ONLY valid JSON with these exact keys:
+        - extracted_skills: array of top skills found
+        - strengths: array of 3-4 key strengths
+        - weaknesses: array of 3-4 areas for improvement
+        - ats_score: number between 0-100
+        - missing_keywords: array of important keywords missing
+        - improvement_suggestions: array of objects with "section" and "suggestion"
+        - formatting_tips: array of formatting suggestions
+        - overall_rating: string ("Excellent", "Good", "Average", "Poor")
+        - summary_feedback: string with overall feedback
+
+        Keep each item short and actionable. Maximum 4 items per array.
+        """
+
+        user_prompt = f"""
+        Resume Content:
+        {resume_analysis_text}
+
+        {f"Job Description (for context): {jd_text}" if jd_text else ""}
+
+        Provide structured feedback in valid JSON format.
+        """
+
+        try:
+            result = await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.3)
+        except Exception as llm_err:
+            logger.error(f"LLM analysis failed: {llm_err}")
+            result = generate_fallback_analysis(extracted_text)
+
+        result.setdefault("extracted_skills", ["Communication", "Problem Solving", "Teamwork"])
+        result.setdefault("strengths", ["Clear communication", "Good technical foundation", "Team player"])
+        result.setdefault("weaknesses", ["Could provide more specific examples", "Missing quantifiable achievements"])
+        result.setdefault("ats_score", 75)
+        result.setdefault("missing_keywords", ["data analysis", "project management", "leadership"])
+        result.setdefault("improvement_suggestions", [
+            {"section": "Experience", "suggestion": "Add specific metrics and achievements"},
+            {"section": "Skills", "suggestion": "Include more relevant technical skills"}
+        ])
+        result.setdefault("formatting_tips", ["Use bullet points for readability", "Keep consistent formatting"])
+        result.setdefault("overall_rating", "Good")
+        result.setdefault("summary_feedback", "Resume shows good potential. Consider adding more specific metrics and tailoring to the job description.")
+
+        if user_id:
+            try:
+                await db.interview_data.update_one(
+                    {"user_id": user_id},
+                    {"$set": {
+                        "resume_analysis": result,
+                        "resume_text": extracted_text[:5000],
+                        "resume_file_name": file_name,
+                        "job_description": job_description or "",
+                        "updated_at": datetime.now(timezone.utc).isoformat()
+                    }},
+                    upsert=True
+                )
+                logger.info(f"✅ Saved interview data for user: {user_id}")
+            except Exception as db_err:
+                logger.error(f"DB save error: {db_err}")
+
+        result["extracted_text"] = extracted_text[:2000]
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in resume analysis: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api_router.post("/interview/generate-questions")
+async def generate_interview_questions(payload: Dict[str, Any]):
+    try:
+        resume_text = payload.get("resume_text", "")[:2000]
+        jd_text = payload.get("job_description", "")[:1500]
+        level = payload.get("level", 1)
+        question_count = min(payload.get("question_count", 12), 15)
+        user_id = payload.get("user_id")
+
+        role = "General"
+        if jd_text:
+            lines = jd_text.split('\n')[:5]
+            for line in lines:
+                clean_line = line.strip()
+                if any(kw in clean_line.lower() for kw in ['looking for', 'seeking', 'role', 'position', 'require']):
+                    if len(clean_line) > 10:
+                        role = clean_line[:80]
+                        break
+
+        types_required = {
+            "behavioral": max(2, question_count // 4),
+            "technical": max(2, question_count // 4),
+            "situational": max(1, question_count // 5),
+            "culture": max(1, question_count // 6),
+            "problem_solving": max(1, question_count // 5)
+        }
+
+        total_assigned = sum(types_required.values())
+        if total_assigned < question_count:
+            remaining = question_count - total_assigned
+            types_required["behavioral"] += remaining // 2
+            types_required["technical"] += remaining - (remaining // 2)
+
+        system_prompt = f"""You are a senior hiring manager. Generate interview questions for a {role} role.
+        Question distribution: Behavioral: {types_required['behavioral']}, Technical: {types_required['technical']}, 
+        Situational: {types_required['situational']}, Culture: {types_required['culture']}, 
+        Problem Solving: {types_required['problem_solving']}
+
+        Return ONLY valid JSON with:
+        {{"questions": [
+            {{"id": "q1", "type": "behavioral", "question": "...", "category": "...", 
+              "difficulty": "Beginner/Intermediate/Advanced", 
+              "sample_answer": "...", 
+              "key_points": ["p1","p2"], 
+              "common_mistakes": ["m1"], 
+              "follow_up_hint": "..."}}
+        ], "summary": "Brief overview of question set"}}"""
+
+        user_prompt = f"""Role: {role}
+        Skills from resume: {resume_text[:500] if resume_text else 'Not provided'}
+        Job Requirements: {jd_text[:500] if jd_text else 'Not provided'}
+        Level: {level}
+        Generate {question_count} interview questions in valid JSON format.
+        Make questions specific to the role and tailored to the candidate's background.
+        """
+
+        try:
+            result = await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.85)
+        except Exception as llm_err:
+            logger.error(f"LLM question generation failed: {llm_err}")
+            fallback_questions = generate_fallback_questions(role, question_count)
+            result = {"questions": fallback_questions, "summary": "Generated fallback questions"}
+
+        if "questions" not in result or not result["questions"]:
+            fallback_questions = generate_fallback_questions(role, question_count)
+            result = {"questions": fallback_questions, "summary": "Generated fallback questions"}
+
+        if len(result["questions"]) > question_count:
+            result["questions"] = result["questions"][:question_count]
+
+        for q in result["questions"]:
+            q.setdefault("id", f"q{result['questions'].index(q) + 1}")
+            q.setdefault("type", "behavioral")
+            q.setdefault("difficulty", "Intermediate")
+            q.setdefault("sample_answer", "Provide a structured answer using STAR method.")
+            q.setdefault("key_points", ["Clear communication", "Specific example"])
+            q.setdefault("common_mistakes", ["Being too vague"])
+            q.setdefault("follow_up_hint", "Can you elaborate on that?")
+            q.setdefault("category", role if role != "General" else "General")
+
+        if user_id:
+            try:
+                await db.interview_data.update_one(
+                    {"user_id": user_id},
+                    {"$set": {
+                        "generated_questions": result["questions"],
+                        "questions_summary": result.get("summary", ""),
+                        "question_count": len(result["questions"]),
+                        "updated_at": datetime.now(timezone.utc).isoformat()
+                    }},
+                    upsert=True
+                )
+            except Exception as db_err:
+                logger.error(f"DB save error: {db_err}")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error generating questions: {e}")
+        return {
+            "questions": generate_fallback_questions("General", 10),
+            "summary": "Generated fallback questions due to error"
+        }
+
+
+@api_router.post("/interview/practice")
+async def interview_practice(payload: InterviewPracticeRequest):
+    try:
+        question = payload.question
+        user_answer = payload.user_answer
+        context = payload.context or {}
+
+        conversation = context.get("conversation", [])
+
+        history_text = "\n".join([
+            f"Interviewer: {msg.get('question', '')}" if msg.get('role') == 'interviewer' 
+            else f"Candidate: {msg.get('answer', '')}"
+            for msg in conversation[-5:]
+        ])
+
+        system_prompt = """
+        You are an experienced HR interviewer and career coach. 
+        Evaluate the candidate's answer and provide detailed, actionable feedback.
+        Return a JSON object with the following keys:
+        - "evaluation": A short overall assessment (2-3 sentences).
+        - "strengths": List of 2-4 specific strengths of the answer.
+        - "improvements": List of 2-4 specific areas that need improvement.
+        - "score": A numeric score from 0-100.
+        - "follow_up_question": A natural follow-up question to continue the conversation.
+        - "tip": One practical tip to improve future answers.
+        - "key_points_covered": List of 2-3 key points the candidate successfully addressed.
+        - "communication_style": Brief feedback on clarity, structure, confidence, and use of language.
+        - "suggested_improvement": A concrete suggestion on how to improve the answer.
+        Keep the feedback constructive and encouraging.
+        """
+
+        user_prompt = f"""
+        Question: {question}
+        Answer: {user_answer}
+        {f"History of previous Q&A (for context):\n{history_text}" if history_text else ""}
+        Provide a thorough evaluation in valid JSON.
+        """
+
+        result = await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.7)
+
+        result.setdefault("evaluation", "Good attempt. Keep practising!")
+        result.setdefault("strengths", ["Clear communication"])
+        result.setdefault("improvements", ["Add more specific examples"])
+        result.setdefault("score", 70)
+        result.setdefault("follow_up_question", "Can you elaborate on that?")
+        result.setdefault("tip", "Use the STAR method for behavioural questions.")
+        result.setdefault("key_points_covered", ["Addressed the main question", "Showed understanding of the problem"])
+        result.setdefault("communication_style", "Clear and confident, but could be more structured.")
+        result.setdefault("suggested_improvement", "Try to quantify your achievements and use the STAR framework.")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error in interview practice: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api_router.post("/interview/feedback")
+async def interview_feedback(payload: InterviewFeedbackRequest):
+    try:
+        conversation = payload.conversation
+        job_role = payload.job_role or "General"
+        level = payload.level or 1
+
+        conversation_text = "\n".join([
+            f"Q: {msg.get('question', '')}\nA: {msg.get('answer', '')}"
+            for msg in conversation
+        ])
+
+        system_prompt = """
+        You are a senior career coach. Analyze the interview and provide feedback.
+        Return JSON with: overall_score, summary, strengths, weaknesses, communication, 
+        technical_skills, behavioral_skills, improvement_areas, tips, 
+        recommended_resources, confidence_boost, next_steps.
+        """
+
+        user_prompt = f"""
+        Role: {job_role}
+        Level: {level}
+        Conversation: {conversation_text[:3000]}
+        Provide comprehensive feedback.
+        """
+
+        result = await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.3)
+
+        result.setdefault("overall_score", 70)
+        result.setdefault("summary", "Good performance with room for improvement.")
+        result.setdefault("strengths", ["Good communication"])
+        result.setdefault("weaknesses", ["Need more specific examples"])
+        result.setdefault("communication", {"clarity": "Good", "confidence": "Good", "structure": "Could improve"})
+        result.setdefault("technical_skills", "Shows basic understanding")
+        result.setdefault("behavioral_skills", "Good but need more STAR examples")
+        result.setdefault("improvement_areas", [
+            {"area": "Specific examples", "suggestion": "Use STAR method", "priority": "High"}
+        ])
+        result.setdefault("tips", ["Practice your answers out loud"])
+        result.setdefault("recommended_resources", [
+            {"topic": "STAR Method", "suggestion": "Learn to structure answers"}
+        ])
+        result.setdefault("confidence_boost", "You're doing great! Keep practicing.")
+        result.setdefault("next_steps", ["Review feedback", "Practice more", "Prepare questions"])
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error in interview feedback: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api_router.get("/interview/session/{user_id}")
+async def get_interview_session(user_id: str):
+    try:
+        data = await db.interview_data.find_one({"user_id": user_id})
+        if not data:
+            return {
+                "resume_analysis": None,
+                "generated_questions": [],
+                "practice_sessions": [],
+                "feedback_history": [],
+                "resume_text": "",
+                "job_description": "",
+                "has_data": False
+            }
+
+        data.pop("_id", None)
+        data["has_data"] = True
+        return data
+
+    except Exception as e:
+        logger.error(f"Error fetching interview session: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api_router.post("/interview/save-session")
+async def save_interview_session(payload: Dict[str, Any]):
+    try:
+        user_id = payload.get("user_id")
+        if not user_id:
+            raise HTTPException(status_code=400, detail="user_id required")
+
+        session_data = {
+            "date": datetime.now(timezone.utc).isoformat(),
+            "questions": payload.get("questions", []),
+            "answers": payload.get("answers", []),
+            "feedback": payload.get("feedback", {}),
+            "score": payload.get("score", 0)
+        }
+
+        await db.interview_data.update_one(
+            {"user_id": user_id},
+            {
+                "$push": {"practice_sessions": session_data},
+                "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
+            },
+            upsert=True
+        )
+
+        return {"success": True, "message": "Session saved successfully"}
+
+    except Exception as e:
+        logger.error(f"Error saving interview session: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api_router.post("/interview/analyze-jd")
+async def analyze_jd(payload: Dict[str, Any]):
+    try:
+        jd_text = payload.get("job_description", "")
+        resume_text = payload.get("resume_text", "Resume not provided")
+        user_id = payload.get("user_id")
+
+        if not jd_text or not jd_text.strip():
+            raise HTTPException(status_code=400, detail="Job Description is required")
+
+        if len(jd_text) > 1500:
+            jd_text = jd_text[:1500] + "..."
+        if len(resume_text) > 2000:
+            resume_text = resume_text[:2000] + "..."
+
+        system_prompt = """You are an expert ATS resume reviewer and career coach. 
+        Analyze the Job Description and provide structured feedback on how well the resume matches.
+
+        IMPORTANT: Return ONLY valid JSON with these exact keys:
+        - extracted_skills: array of key skills required in the JD
+        - strengths: array of 3-4 strengths (how resume matches JD)
+        - weaknesses: array of 3-4 gaps (what's missing)
+        - ats_score: number between 0-100 (match percentage)
+        - missing_keywords: array of important keywords from JD missing in resume
+        - improvement_suggestions: array of objects with "section" and "suggestion"
+        - formatting_tips: array of formatting suggestions
+        - overall_rating: string ("Excellent", "Good", "Average", "Poor")
+        - summary_feedback: string with overall feedback
+
+        Keep each item short and actionable. Maximum 4 items per array.
+        """
+
+        user_prompt = f"""
+        Job Description:
+        {jd_text}
+
+        Resume (for comparison):
+        {resume_text}
+
+        Provide structured feedback in valid JSON format.
+        """
+
+        try:
+            result = await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.3)
+        except Exception as llm_err:
+            logger.error(f"LLM analysis failed: {llm_err}")
+            result = generate_fallback_analysis(jd_text)
+
+        result.setdefault("extracted_skills", ["Communication", "Problem Solving", "Teamwork"])
+        result.setdefault("strengths", ["Clear communication", "Good technical foundation"])
+        result.setdefault("weaknesses", ["Could provide more specific examples", "Missing quantifiable achievements"])
+        result.setdefault("ats_score", 65)
+        result.setdefault("missing_keywords", ["data analysis", "project management", "leadership"])
+        result.setdefault("improvement_suggestions", [
+            {"section": "Experience", "suggestion": "Add specific metrics and achievements"},
+            {"section": "Skills", "suggestion": "Include more relevant technical skills"}
+        ])
+        result.setdefault("formatting_tips", ["Use bullet points for readability", "Keep consistent formatting"])
+        result.setdefault("overall_rating", "Average")
+        result.setdefault("summary_feedback", "The resume needs better alignment with the job description.")
+
+        if user_id:
+            try:
+                await db.interview_data.update_one(
+                    {"user_id": user_id},
+                    {"$set": {
+                        "resume_analysis": result,
+                        "job_description": payload.get("job_description", ""),
+                        "updated_at": datetime.now(timezone.utc).isoformat()
+                    }},
+                    upsert=True
+                )
+                logger.info(f"✅ Saved JD analysis for user: {user_id}")
+            except Exception as db_err:
+                logger.error(f"DB save error: {db_err}")
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in JD analysis: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api_router.post("/interview/voice-transcribe")
+async def interview_voice_transcribe(
+    audio: UploadFile = File(...),
+    history: str = Form(default="[]")
+):
+    try:
+        audio_bytes = await audio.read()
+        filename = audio.filename or "voice_note.webm"
+        logger.info(f"🎙️ Interview voice: Received audio file: {filename}, Size: {len(audio_bytes)} bytes")
+
+        user_spoken_text = None
+        transcription_method = None
+
+        if FASTER_WHISPER_AVAILABLE and local_whisper:
+            try:
+                user_spoken_text = await transcribe_locally(audio_bytes)
+                if user_spoken_text and len(user_spoken_text.strip()) > 0:
+                    transcription_method = "faster-whisper"
+                    logger.info(f"✅ faster-whisper: '{user_spoken_text}'")
+            except Exception as e:
+                logger.warning(f"⚠️ faster-whisper failed: {e}")
+                user_spoken_text = None
+
+        if not user_spoken_text or len(user_spoken_text.strip()) == 0:
+            try:
+                import speech_recognition as sr
+                import tempfile
+                import os
+                import subprocess
+                from pydub import AudioSegment
+
+                with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_webm:
+                    temp_webm.write(audio_bytes)
+                    webm_path = temp_webm.name
+
+                wav_path = webm_path.replace('.webm', '.wav')
+
+                try:
+                    audio_segment = AudioSegment.from_file(webm_path, format="webm")
+                    audio_segment.export(wav_path, format="wav")
+                except Exception as e:
+                    logger.warning(f"pydub conversion failed: {e}")
+                    try:
+                        subprocess.run(
+                            ['ffmpeg', '-i', webm_path, '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', wav_path],
+                            capture_output=True, check=True
+                        )
+                    except:
+                        logger.warning("ffmpeg conversion failed, using raw")
+                        wav_path = webm_path
+
+                recognizer = sr.Recognizer()
+                with sr.AudioFile(wav_path) as source:
+                    recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                    audio_data = recognizer.record(source)
+
+                    languages = ["en-US", "en-IN", "mr-IN", "hi-IN"]
+                    for lang in languages:
+                        try:
+                            user_spoken_text = recognizer.recognize_google(audio_data, language=lang)
+                            if user_spoken_text and len(user_spoken_text.strip()) > 0:
+                                transcription_method = f"google-speech-{lang}"
+                                logger.info(f"✅ Google Speech ({lang}): '{user_spoken_text}'")
+                                break
+                        except Exception as e:
+                            logger.warning(f"Google Speech {lang} failed: {e}")
+                            continue
+
+                try:
+                    os.unlink(webm_path)
+                    if os.path.exists(wav_path) and wav_path != webm_path:
+                        os.unlink(wav_path)
+                except:
+                    pass
+
+            except Exception as e:
+                logger.warning(f"⚠️ Google Speech failed: {e}")
+                user_spoken_text = None
+
+        if not user_spoken_text or len(user_spoken_text.strip()) == 0:
+            try:
+                import vosk
+                import wave
+                import json
+                import tempfile
+                import os
+                from pydub import AudioSegment
+
+                model_path = "models/vosk-model-small-en-us-0.15"
+                if not os.path.exists(model_path):
+                    logger.info("📥 Downloading Vosk model...")
+                    os.makedirs("models", exist_ok=True)
+                    import urllib.request
+                    import zipfile
+                    url = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
+                    zip_path = "models/vosk-model.zip"
+                    urllib.request.urlretrieve(url, zip_path)
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        zip_ref.extractall("models")
+                    os.remove(zip_path)
+                    logger.info("✅ Vosk model downloaded!")
+
+                with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_webm:
+                    temp_webm.write(audio_bytes)
+                    webm_path = temp_webm.name
+
+                wav_path = webm_path.replace('.webm', '.wav')
+                audio_segment = AudioSegment.from_file(webm_path, format="webm")
+                audio_segment = audio_segment.set_frame_rate(16000).set_channels(1)
+                audio_segment.export(wav_path, format="wav")
+
+                model = vosk.Model(model_path)
+                rec = vosk.KaldiRecognizer(model, 16000)
+
+                wf = wave.open(wav_path, "rb")
+                full_text = []
+                while True:
+                    data = wf.readframes(4000)
+                    if len(data) == 0:
+                        break
+                    if rec.AcceptWaveform(data):
+                        result = json.loads(rec.Result())
+                        text = result.get("text", "")
+                        if text:
+                            full_text.append(text)
+
+                user_spoken_text = " ".join(full_text)
+
+                try:
+                    os.unlink(webm_path)
+                    os.unlink(wav_path)
+                except:
+                    pass
+
+                if user_spoken_text and len(user_spoken_text.strip()) > 0:
+                    transcription_method = "vosk"
+                    logger.info(f"✅ Vosk: '{user_spoken_text}'")
+
+            except Exception as e:
+                logger.warning(f"⚠️ Vosk failed: {e}")
+                user_spoken_text = None
+
+        if not user_spoken_text or len(user_spoken_text.strip()) == 0:
+            logger.error("❌ All transcription methods failed")
+            return {
+                "transcribed_text": "",
+                "success": False,
+                "error": "Could not transcribe voice. Please type your answer."
+            }
+
+        return {
+            "transcribed_text": user_spoken_text,
+            "success": True,
+            "method": transcription_method or "unknown"
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error in interview voice transcribe: {e}")
+        return {
+            "transcribed_text": "",
+            "success": False,
+            "error": "Internal server error"
+        }
 
 
 # ==========================================
 # WRITING PROMPT & EVALUATION ENDPOINTS
 # ==========================================
+WRITING_CATEGORIES = [
+    "Personal Experiences & Life Events",
+    "Technology, AI & Future Trends",
+    "Career, Business & Ambition",
+    "Environment, Climate & Nature",
+    "Culture, Travel & Food",
+    "Social Issues & Current Debates",
+    "Daily Habits & Personal Growth",
+    "Education & Learning",
+    "Health & Wellness",
+    "Creativity & Art",
+    "Leadership & Teamwork"
+]
+
+FALLBACK_WRITING_PROMPTS = [
+    {
+        "title_en": "Describe a memorable day in your life and why it was special.",
+        "title_mr": "तुमच्या आयुष्यातील एक संस्मरणीय दिवस आणि तो का खास होता याचे वर्णन करा.",
+        "hints": [
+            "प्रस्तावना (Introduction): तो कोणता दिवस होता आणि तुम्ही कुठे होता?",
+            "मुख्य घटना (Main Events): त्या दिवशी काय घडले ते सविस्तर सांगा.",
+            "निष्कर्ष (Conclusion): तो दिवस तुमच्यासाठी का महत्त्वाचा होता?"
+        ]
+    },
+    {
+        "title_en": "How technology and AI are changing our daily routines.",
+        "title_mr": "तंत्रज्ञान आणि AI आपल्या दैनंदिन जीवनात कसा बदल घडवून आणत आहेत.",
+        "hints": [
+            "प्रस्तावना (Introduction): आपण दररोज कोणती साधने वापरतो?",
+            "फायदे आणि तोटे (Pros & Cons): या तंत्रज्ञानाचे परिणाम काय आहेत?",
+            "निष्कर्ष (Conclusion): भविष्यात यात काय बदल होऊ शकतात?"
+        ]
+    },
+    {
+        "title_en": "Your dream career and the steps you are taking to achieve it.",
+        "title_mr": "तुमचे स्वप्नातील क्षेत्र/नोकरी आणि ती मिळवण्यासाठी तुम्ही करत असलेले प्रयत्न.",
+        "hints": [
+            "प्रस्तावना (Introduction): तुमचे ध्येय काय आहे?",
+            "कारण (Reason): तुम्हाला हेच क्षेत्र का आवडते?",
+            "योजना (Plan): ते साध्य करण्यासाठी तुमची रणनीती काय आहे?"
+        ]
+    },
+    {
+        "title_en": "The importance of learning new languages in the modern world.",
+        "title_mr": "आधुनिक जगात नवीन भाषा शिकण्याचे महत्त्व.",
+        "hints": [
+            "प्रस्तावना (Introduction): भाषा शिकणे का गरजेचे आहे?",
+            "फायदे (Benefits): यामुळे करिअर आणि व्यक्तिमत्त्वात काय फायदा होतो?",
+            "निष्कर्ष (Conclusion): इंग्रजी शिकताना येणारे अनुभव सांगा."
+        ]
+    }
+]
+
+
 @api_router.post("/groq-writing-prompt")
 async def generate_writing_prompt(req: Optional[WritingPromptRequest] = None):
     if req is None:
@@ -1857,19 +1862,19 @@ async def groq_talk_bot(payload: TalkBotRequest):
             if msg.sender == "user":
                 last_user_message = msg.text
                 user_message_count += 1
-        
+
         is_initial = (user_message_count == 0)
-        
+
         if hasattr(payload, 'is_initial_greeting') and payload.is_initial_greeting:
             is_initial = True
-        
+
         if not last_user_message:
             last_user_message = "Hello"
-        
+
         level = payload.level or 1
         english_percent = payload.english_percent if hasattr(payload, 'english_percent') else 50
         day = payload.day if hasattr(payload, 'day') else 1
-        
+
         conversation_history = []
         user_messages = []
         for msg in payload.conversation:
@@ -1878,9 +1883,9 @@ async def groq_talk_bot(payload: TalkBotRequest):
                 user_messages.append(msg.text)
             else:
                 conversation_history.append(f"Teacher: {msg.text}")
-        
+
         history_text = "\n".join(conversation_history[-12:])
-        
+
         total_english_words = 0
         total_marathi_words = 0
         for msg in user_messages:
@@ -1888,131 +1893,128 @@ async def groq_talk_bot(payload: TalkBotRequest):
             marathi_words = len(re.findall(r'[\u0900-\u097F]+', msg))
             total_english_words += english_words
             total_marathi_words += marathi_words
-        
+
         if total_english_words > 0 or total_marathi_words > 0:
             user_english_percent = (total_english_words / (total_english_words + total_marathi_words)) * 100
         else:
             user_english_percent = 20
-        
+
         target_english_percent = min(80, max(20, user_english_percent + (level * 2)))
         base_percent = english_percent if english_percent > 0 else 30
-        
+
         if is_initial:
             english_ratio = max(30, min(40, base_percent))
         else:
             english_ratio = max(30, min(80, target_english_percent))
-            
+
         if level >= 3 and english_ratio < 40:
             english_ratio = 40
         elif level >= 5 and english_ratio < 50:
             english_ratio = 50
-        
+
         marathi_ratio = 100 - english_ratio
-        
+
         logger.info(f"📝 English/Marathi ratio: {english_ratio}% English, {marathi_ratio}% Marathi")
         logger.info(f"📝 User's English usage: {user_english_percent:.1f}%")
-        
+
         message_metrics = analyze_message_metrics(last_user_message)
         logger.info(f"📊 Message metrics: {message_metrics}")
-        
+
         if is_initial:
-            topic_system_prompt = (
-                "You are a creative conversation designer for English learners. "
-                f"Today is Day {day} of their learning journey. "
-                "Generate a UNIQUE, creative, and interesting conversation starter. "
-                "Make it relatable, personal, and simple for a beginner. "
-                "DO NOT use 'सुधारलंय' or 'improved' or any improvement-related words. "
-                "Return ONLY valid JSON with these keys: "
-                "topic, question, question_mr, marathi_intro, follow_up, fun_fact"
-            )
-            topic_user_prompt = (
-                f"Day {day}. Student Level: {level}. "
-                "Generate a fresh, unique conversation starter topic. "
-                "Make it interesting but simple. "
-                "Return ONLY valid JSON."
-            )
-            
-            topic_data = await call_llm_with_fallback(topic_system_prompt, topic_user_prompt, temperature=0.9)
-            
-            topic_data.setdefault("topic", "Your Day")
-            topic_data.setdefault("question", "How was your day today?")
-            topic_data.setdefault("question_mr", "आजचा दिवस कसा गेला?")
-            topic_data.setdefault("marathi_intro", "आपण आजच्या दिवसाबद्दल बोलूया!")
-            topic_data.setdefault("follow_up", "What made your day special?")
-            topic_data.setdefault("fun_fact", "Every day is a new opportunity to learn something new!")
-            
-            logger.info(f"✨ Generated topic for Day {day}: {topic_data.get('topic')}")
-            
-            greeting_system_prompt = (
-                "You are a warm, friendly WhatsApp conversation partner. "
-                "This is the FIRST message. The student is a BEGINNER. "
-                f"Topic: {topic_data.get('topic')} "
-                f"Question: {topic_data.get('question')} "
-                f"Marathi intro: {topic_data.get('marathi_intro')} "
-                f"English ratio: {english_ratio}% English, {marathi_ratio}% Marathi "
-                "CRITICAL RULES: "
-                "1. DO NOT use 'सुधारलंय' or 'improved' - they haven't spoken yet! "
-                "2. Focus on them STARTING their journey, not improving. "
-                "3. Give a warm, welcoming greeting. "
-                "4. Use BOTH English and Marathi in the response. "
-                "5. Ask the question in English and also explain in Marathi. "
-                "Return JSON: "
-                "{\"reply\": \"Warm greeting with the question (mix of English and Marathi)\", "
-                "\"feedback_mr\": \"Marathi encouragement (NO improvement words)\", "
-                "\"soft_skill_tip\": \"Helpful tip for beginners (in English)\"}"
-            )
-            greeting_user_prompt = (
-                f"Day {day}. Generate a warm first message for a beginner. "
-                f"Topic: {topic_data.get('topic')} "
-                f"Question: {topic_data.get('question')} "
-                f"Marathi version: {topic_data.get('question_mr')} "
-                f"Marathi intro: {topic_data.get('marathi_intro')} "
-                f"Use about {english_ratio}% English and {marathi_ratio}% Marathi in the reply. "
-                "Make it warm, personal, and conversational. "
-                "NO improvement words like सुधारलंय, सुधारत, improved, improving."
-            )
-            
-            result = await call_llm_with_fallback(greeting_system_prompt, greeting_user_prompt, temperature=0.8)
-            
-            result["daily_topic"] = topic_data.get("topic")
-            result["question"] = topic_data.get("question")
-            result["question_mr"] = topic_data.get("question_mr")
-            result["marathi_intro"] = topic_data.get("marathi_intro")
-            result["fun_fact"] = topic_data.get("fun_fact")
-            result["follow_up"] = topic_data.get("follow_up")
-            result["english_ratio"] = english_ratio
-            result["message_metrics"] = message_metrics
-            
-            result["reply"] = result.get("reply", f"Namaste! Day {day} - Let's talk about {topic_data.get('topic')}! {topic_data.get('question')} ({topic_data.get('question_mr')})")
-            result["feedback_mr"] = result.get("feedback_mr", f"तुम्ही इंग्रजी शिकायला सुरुवात केली आहे, खूप छान! {topic_data.get('marathi_intro')}")
-            result["soft_skill_tip"] = result.get("soft_skill_tip", "Start with simple words like 'Hello', 'How are you?'")
-            
+            # FIRST MESSAGE - NO "सुधारलंय"
+            FALLBACK_TOPICS = [
+                {
+                    "topic": "Your Weekend Plans",
+                    "question": "What are your plans for this weekend?",
+                    "question_mr": "या आठवड्याच्या शेवटी तुमचे काय प्लॅन आहेत?",
+                    "marathi_intro": "आपण आठवड्याच्या शेवटी काय करतो याबद्दल बोलूया!",
+                    "follow_up": "Tell me about your favorite weekend activity.",
+                    "fun_fact": "Weekends are a great time to relax and recharge!"
+                },
+                {
+                    "topic": "Your Favorite Food",
+                    "question": "What is your favorite food and why?",
+                    "question_mr": "तुमची आवडती खाद्यपदार्थ कोणती आणि का?",
+                    "marathi_intro": "चला, खाण्यापिण्याबद्दल गप्पा मारूया!",
+                    "follow_up": "Do you like to cook or eat outside more?",
+                    "fun_fact": "Food brings people together from all cultures!"
+                },
+                {
+                    "topic": "Your Dream Destination",
+                    "question": "If you could travel anywhere, where would you go?",
+                    "question_mr": "जर तुम्ही कुठेही प्रवास करू शकलात तर कुठे जाल?",
+                    "marathi_intro": "तुमच्या स्वप्नातील प्रवासाच्या ठिकाणाबद्दल सांगा!",
+                    "follow_up": "What attracts you to that place?",
+                    "fun_fact": "Traveling opens our minds to new cultures!"
+                },
+                {
+                    "topic": "Your Daily Routine",
+                    "question": "How does your typical day look like?",
+                    "question_mr": "तुमचा एक सामान्य दिवस कसा जातो?",
+                    "marathi_intro": "आपल्या दैनंदिन दिनचर्येबद्दल बोलूया!",
+                    "follow_up": "What is your favorite time of the day?",
+                    "fun_fact": "Routines help us stay organized and productive!"
+                },
+                {
+                    "topic": "Your Hobbies",
+                    "question": "What are your hobbies and interests?",
+                    "question_mr": "तुमचे छंद आणि आवडी कोणत्या आहेत?",
+                    "marathi_intro": "तुमच्या आवडीच्या गोष्टींबद्दल सांगा!",
+                    "follow_up": "How did you develop interest in these hobbies?",
+                    "fun_fact": "Hobbies make life more enjoyable and fulfilling!"
+                },
+                {
+                    "topic": "Your Career Goals",
+                    "question": "What are your career or life goals?",
+                    "question_mr": "तुमची करिअर किंवा जीवनाची उद्दिष्टे काय आहेत?",
+                    "marathi_intro": "तुमच्या ध्येयांबद्दल आणि स्वप्नांबद्दल बोलूया!",
+                    "follow_up": "What steps are you taking to achieve them?",
+                    "fun_fact": "Setting goals helps us stay focused and motivated!"
+                }
+            ]
+
+            topic_index = (day - 1) % len(FALLBACK_TOPICS)
+            topic_data = FALLBACK_TOPICS[topic_index].copy()
+
+            result = {
+                "reply": f"Namaste! Day {day} - Let's talk about {topic_data.get('topic', 'Your Day')}! {topic_data.get('question', 'How are you?')}",
+                "feedback_mr": f"तुम्ही इंग्रजी शिकायला सुरुवात केली आहे, खूप छान! {topic_data.get('marathi_intro', 'आजच्या विषयाबद्दल बोलूया!')}",
+                "soft_skill_tip": "Start with simple words like 'Hello', 'How are you?'",
+                "daily_topic": topic_data.get("topic", "Your Day"),
+                "question": topic_data.get("question", "How are you?"),
+                "question_mr": topic_data.get("question_mr", "आज तुम्हाला कसे वाटत आहे?"),
+                "marathi_intro": topic_data.get("marathi_intro", "आजच्या विषयाबद्दल बोलूया!"),
+                "fun_fact": topic_data.get("fun_fact", "Every day is a new opportunity to learn!"),
+                "follow_up": topic_data.get("follow_up", "What else would you like to share?"),
+                "english_ratio": english_ratio,
+                "message_metrics": message_metrics
+            }
+
+            # Safety check – remove any improvement words
             if "सुधारलंय" in result["feedback_mr"] or "सुधारत" in result["feedback_mr"]:
                 result["feedback_mr"] = f"तुम्ही इंग्रजी शिकायला सुरुवात केली आहे, खूप छान! {topic_data.get('marathi_intro', 'आजच्या विषयाबद्दल बोलूया!')}"
-            
             if "सुधारलंय" in result["reply"] or "सुधारत" in result["reply"]:
-                result["reply"] = f"Namaste! Day {day} - Let's talk about {topic_data.get('topic', 'Your Day')}! {topic_data.get('question', 'How are you?')} ({topic_data.get('question_mr', 'आज तुम्हाला कसे वाटत आहे?')})"
-            
+                result["reply"] = f"Namaste! Day {day} - Let's talk about {topic_data.get('topic', 'Your Day')}! {topic_data.get('question', 'How are you?')}"
+
             return result
-            
+
         else:
+            # NON-INITIAL MESSAGES - Can use improvement words
             exchange_count = user_message_count
-            
+
             if exchange_count <= 2:
                 encouragement_msg = "तुम्ही इंग्रजी बोलायला सुरुवात केली आहे, ही खूप चांगली गोष्ट आहे! असेच चालू ठेवा."
                 feedback_mr_default = "तुम्ही इंग्रजी बोलायला सुरुवात केली आहे, ही खूप चांगली गोष्ट आहे! असेच चालू ठेवा."
-                
             elif exchange_count <= 5:
                 encouragement_msg = "तुम्ही चांगले इंग्रजी बोलत आहात! असेच सराव करा."
                 feedback_mr_default = "तुम्ही चांगले इंग्रजी बोलत आहात! असेच सराव करा."
-                
             else:
                 encouragement_msg = "तुमचं इंग्रजी सुधारत आहे, माझ्यासोबत प्रॅक्टिस करा!"
                 feedback_mr_default = "तुमचं इंग्रजी सुधारत आहे, माझ्यासोबत प्रॅक्टिस करा!"
-            
+
             logger.info(f"📝 Exchange {exchange_count}: Using '{encouragement_msg}'")
             logger.info(f"📝 English/Marathi ratio: {english_ratio}% English, {marathi_ratio}% Marathi")
-            
+
             system_prompt = (
                 "You are a warm, friendly WhatsApp conversation partner and English practice buddy. "
                 f"English/Marathi ratio: Use about {english_ratio}% English and {marathi_ratio}% Marathi. "
@@ -2035,7 +2037,7 @@ async def groq_talk_bot(payload: TalkBotRequest):
                 "\"feedback_mr\": \"Marathi feedback with specific corrections and English translations\", "
                 "\"soft_skill_tip\": \"Bilingual English tip (Marathi + English explanation)\"}"
             )
-            
+
             user_prompt = (
                 f"Conversation History:\n{history_text}\n\n"
                 f"Student's latest message: '{last_user_message}'\n\n"
@@ -2051,17 +2053,17 @@ async def groq_talk_bot(payload: TalkBotRequest):
                 "3. Ask a follow-up question. "
                 "Make it encouraging but helpful - one correction at a time."
             )
-            
+
             result = await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.8)
-            
+
             result["reply"] = result.get("reply", "That's interesting! Can you tell me more about that? (तुम्ही आणखी काही सांगू शकता?)")
             result["feedback_mr"] = result.get("feedback_mr", feedback_mr_default)
             result["soft_skill_tip"] = result.get("soft_skill_tip", "Try to use more English words in your sentences.")
             result["english_ratio"] = english_ratio
             result["message_metrics"] = message_metrics
-            
+
             return result
-        
+
     except Exception as e:
         logger.error(f"Error in groq-talk-bot: {e}")
         return {
@@ -2100,7 +2102,7 @@ async def groq_talk_bot(payload: TalkBotRequest):
 async def groq_session_metrics(payload: MetricsRequest):
     try:
         user_messages = [msg.text for msg in payload.conversation if msg.sender == "user"]
-        
+
         if not user_messages:
             return {
                 "fluencyScore": 0,
@@ -2114,37 +2116,36 @@ async def groq_session_metrics(payload: MetricsRequest):
                 "sessionLength": len(payload.conversation),
                 "message": "No user messages found in session"
             }
-        
+
         total_words = sum(len(msg.split()) for msg in user_messages)
         total_marathi_words = 0
         total_english_words = 0
-        
+
         for msg in user_messages:
             marathi_words = len(re.findall(r'[\u0900-\u097F]+', msg))
             english_words = len(re.findall(r'[a-zA-Z]+', msg))
-            
             total_marathi_words += marathi_words
             total_english_words += english_words
-        
+
         avg_words_per_message = total_words / len(user_messages) if user_messages else 0
         questions_asked = sum(1 for msg in user_messages if "?" in msg)
         question_ratio = questions_asked / len(user_messages) if user_messages else 0
-        
+
         all_words = " ".join(user_messages).lower().split()
         unique_words = len(set(all_words)) if all_words else 0
         vocab_ratio = unique_words / (len(all_words) or 1)
-        
+
         fluency_score = min(95, 60 + (avg_words_per_message * 3)) if user_messages else 0
         confidence_score = min(95, 55 + (question_ratio * 40) + (avg_words_per_message * 2)) if user_messages else 0
         vocab_score = min(95, 50 + (vocab_ratio * 100 * 0.45)) if user_messages else 0
         grammar_score = min(95, 70 + (avg_words_per_message * 1.5) - (10 if avg_words_per_message < 3 else 0)) if user_messages else 0
         pronunciation_score = min(90, 60 + (len(payload.conversation) * 2)) if user_messages else 0
-        
+
         total_words_all = total_english_words + total_marathi_words
         english_percentage = int((total_english_words / (total_words_all or 1)) * 100)
-        
+
         feedback_parts = []
-        
+
         if user_messages:
             if fluency_score >= 80:
                 feedback_parts.append("तुमची प्रगती खूप चांगली आहे! आत्मविश्वासाने बोलत राहा.")
@@ -2152,10 +2153,10 @@ async def groq_session_metrics(payload: MetricsRequest):
                 feedback_parts.append("चांगले प्रयत्न! थोडा अधिक सराव केल्यास तुमची वाक्यरचना सुधारेल.")
             else:
                 feedback_parts.append("सुरुवात चांगली आहे! दररोज थोडे बोलण्याचा प्रयत्न करा.")
-            
+
             if total_words > 0:
                 feedback_parts.append(f"तुम्ही एकूण {total_words} शब्द बोललात.")
-                
+
                 if total_marathi_words > 0 and total_english_words > 0:
                     if english_percentage < 30:
                         feedback_parts.append(f"तुम्ही {100 - english_percentage}% मराठी शब्द वापरले. पुढील वेळी अधिक इंग्रजी शब्द वापरण्याचा प्रयत्न करा.")
@@ -2163,23 +2164,23 @@ async def groq_session_metrics(payload: MetricsRequest):
                         feedback_parts.append(f"तुम्ही {english_percentage}% इंग्रजी शब्द वापरले. अधिक इंग्रजी बोलण्याचा प्रयत्न करा.")
                     else:
                         feedback_parts.append(f"तुम्ही {english_percentage}% इंग्रजी शब्द वापरले. छान प्रगती! असेच चालू ठेवा.")
-                
+
                 if avg_words_per_message < 5:
                     feedback_parts.append("प्रत्येक वाक्यात थोडे अधिक शब्द वापरा. उदा. 'I am fine' ऐवजी 'I am feeling very happy today' म्हणा.")
                 elif avg_words_per_message < 10:
                     feedback_parts.append("चांगले! आता थोडी मोठी वाक्ये बोलण्याचा प्रयत्न करा.")
                 else:
                     feedback_parts.append("उत्तम! तुम्ही मोठी वाक्ये बोलत आहात. ही चांगली प्रगती आहे!")
-            
+
             if questions_asked > 0:
                 feedback_parts.append(f"तुम्ही {questions_asked} प्रश्न विचारले - हे खूप चांगले आहे! संभाषण चालू ठेवण्यासाठी प्रश्न विचारणे महत्त्वाचे आहे.")
             else:
                 feedback_parts.append("पुढील वेळी एक छोटासा प्रश्न विचारण्याचा प्रयत्न करा. जसे 'How are you?' किंवा 'What is this?'")
-            
+
             feedback_mr = " ".join(feedback_parts)
         else:
             feedback_mr = "कोणतेही संभाषण आढळले नाही. कृपया पुढील सत्रात अधिक बोला."
-        
+
         return {
             "fluencyScore": int(fluency_score),
             "confidenceScore": int(confidence_score),
@@ -2197,7 +2198,7 @@ async def groq_session_metrics(payload: MetricsRequest):
             "sessionLength": len(payload.conversation),
             "message": "Session completed successfully! Keep practicing!"
         }
-        
+
     except Exception as e:
         logger.error(f"Error in session metrics: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -2211,15 +2212,15 @@ async def transcribe_audio(payload: Dict[str, Any]):
     try:
         audio_data = payload.get("audio_data", "")
         language = payload.get("language", "en-US")
-        
+
         if not audio_data:
             raise HTTPException(status_code=400, detail="No audio data provided")
-        
+
         import base64
         audio_bytes = base64.b64decode(audio_data)
-        
+
         transcribed_text = None
-        
+
         if FASTER_WHISPER_AVAILABLE and local_whisper:
             try:
                 transcribed_text = await transcribe_locally(audio_bytes)
@@ -2228,17 +2229,17 @@ async def transcribe_audio(payload: Dict[str, Any]):
             except Exception as e:
                 logger.warning(f"⚠️ faster-whisper failed: {e}")
                 transcribed_text = None
-        
+
         if not transcribed_text or len(transcribed_text.strip()) == 0:
             try:
                 import speech_recognition as sr
                 import tempfile
                 import os
-                
+
                 with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_audio:
                     temp_audio.write(audio_bytes)
                     temp_path = temp_audio.name
-                
+
                 wav_path = temp_path.replace('.webm', '.wav')
                 try:
                     from pydub import AudioSegment
@@ -2250,12 +2251,12 @@ async def transcribe_audio(payload: Dict[str, Any]):
                         subprocess.run(['ffmpeg', '-i', temp_path, wav_path], capture_output=True, check=True)
                     except:
                         wav_path = temp_path
-                
+
                 recognizer = sr.Recognizer()
                 with sr.AudioFile(wav_path) as source:
                     recognizer.adjust_for_ambient_noise(source, duration=0.5)
                     audio_data_sr = recognizer.record(source)
-                    
+
                     languages = ["en-US", "en-IN", "mr-IN", "hi-IN"]
                     for lang in languages:
                         try:
@@ -2265,83 +2266,384 @@ async def transcribe_audio(payload: Dict[str, Any]):
                                 break
                         except:
                             continue
-                
+
                 try:
                     os.unlink(temp_path)
                     if os.path.exists(wav_path) and wav_path != temp_path:
                         os.unlink(wav_path)
                 except:
                     pass
-                    
+
             except Exception as e:
                 logger.warning(f"⚠️ Google Speech failed: {e}")
                 transcribed_text = None
-        
+
         if not transcribed_text or len(transcribed_text.strip()) == 0:
             return {"transcript": "", "error": "Could not transcribe audio"}
-        
+
         return {"transcript": transcribed_text.strip(), "success": True}
-        
+
     except Exception as e:
         logger.error(f"Error in transcribe-audio: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ==========================================
-# DYNAMIC WRITING CATEGORIES & FALLBACKS
+# PRONUNCIATION BOT
 # ==========================================
-WRITING_CATEGORIES = [
-    "Personal Experiences & Life Events",
-    "Technology, AI & Future Trends",
-    "Career, Business & Ambition",
-    "Environment, Climate & Nature",
-    "Culture, Travel & Food",
-    "Social Issues & Current Debates",
-    "Daily Habits & Personal Growth",
-    "Education & Learning",
-    "Health & Wellness",
-    "Creativity & Art",
-    "Leadership & Teamwork"
-]
+@api_router.post("/reading/pronunciation-bot")
+async def pronunciation_bot(payload: PronunciationBotRequest):
+    sentence = payload.sentence.strip()
+    if not sentence:
+        raise HTTPException(status_code=400, detail="Sentence cannot be empty")
 
-FALLBACK_WRITING_PROMPTS = [
-    {
-        "title_en": "Describe a memorable day in your life and why it was special.",
-        "title_mr": "तुमच्या आयुष्यातील एक संस्मरणीय दिवस आणि तो का खास होता याचे वर्णन करा.",
-        "hints": [
-            "प्रस्तावना (Introduction): तो कोणता दिवस होता आणि तुम्ही कुठे होता?",
-            "मुख्य घटना (Main Events): त्या दिवशी काय घडले ते सविस्तर सांगा.",
-            "निष्कर्ष (Conclusion): तो दिवस तुमच्यासाठी का महत्त्वाचा होता?"
-        ]
-    },
-    {
-        "title_en": "How technology and AI are changing our daily routines.",
-        "title_mr": "तंत्रज्ञान आणि AI आपल्या दैनंदिन जीवनात कसा बदल घडवून आणत आहेत.",
-        "hints": [
-            "प्रस्तावना (Introduction): आपण दररोज कोणती साधने वापरतो?",
-            "फायदे आणि तोटे (Pros & Cons): या तंत्रज्ञानाचे परिणाम काय आहेत?",
-            "निष्कर्ष (Conclusion): भविष्यात यात काय बदल होऊ शकतात?"
-        ]
-    },
-    {
-        "title_en": "Your dream career and the steps you are taking to achieve it.",
-        "title_mr": "तुमचे स्वप्नातील क्षेत्र/नोकरी आणि ती मिळवण्यासाठी तुम्ही करत असलेले प्रयत्न.",
-        "hints": [
-            "प्रस्तावना (Introduction): तुमचे ध्येय काय आहे?",
-            "कारण (Reason): तुम्हाला हेच क्षेत्र का आवडते?",
-            "योजना (Plan): ते साध्य करण्यासाठी तुमची रणनीती काय आहे?"
-        ]
-    },
-    {
-        "title_en": "The importance of learning new languages in the modern world.",
-        "title_mr": "आधुनिक जगात नवीन भाषा शिकण्याचे महत्त्व.",
-        "hints": [
-            "प्रस्तावना (Introduction): भाषा शिकणे का गरजेचे आहे?",
-            "फायदे (Benefits): यामुळे करिअर आणि व्यक्तिमत्त्वात काय फायदा होतो?",
-            "निष्कर्ष (Conclusion): इंग्रजी शिकताना येणारे अनुभव सांगा."
-        ]
+    system_prompt = f"""
+Analyze the sentence: "{sentence}"
+Provide word-by-word pronunciation breakdowns, phonetic spellings, stress points, audio pacing/pause markers, and Marathi explanation tips for learners.
+Return JSON strictly with schema:
+{{
+  "sentence": "{sentence}",
+  "word_breakdowns": [
+    {{
+      "word": "Word",
+      "phonetic": "PHONETIC",
+      "stress": "Stress detail",
+      "pause_recommended": "Short pause / None",
+      "tip": "Marathi pronunciation tip"
+    }}
+  ],
+  "pacing_tip": "Overall pacing and audio guide tip in English & Marathi."
+}}
+Return raw JSON only without markdown.
+"""
+
+    user_prompt = f"Analyze the sentence: {sentence}"
+
+    try:
+        return await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.3)
+    except Exception as err:
+        logger.warning(f"Pronunciation bot failed: {err}")
+        words = sentence.split()
+        breakdowns = [{
+            "word": w,
+            "phonetic": f"{w.lower()}-phonetic",
+            "stress": "Standard stress",
+            "pause_recommended": "Short pause",
+            "tip": f"उच्चार स्पष्ट करा: {w}"
+        } for w in words]
+        return {
+            "sentence": sentence,
+            "word_breakdowns": breakdowns,
+            "pacing_tip": "वाचताना प्रत्येक शब्दावर लक्ष ठेवा आणि स्वल्पविरामाजवळ (comma) थोडा थंबा."
+        }
+
+
+# ==========================================
+# TTS SPEECH MARKS
+# ==========================================
+@api_router.post("/reading/tts-marks")
+async def generate_tts_speech_marks(payload: TTSMarksRequest):
+    page_text = payload.page_text or ""
+    words = page_text.split()
+
+    timing_marks = []
+    current_time_ms = 0
+    current_char_offset = 0
+
+    for word in words:
+        start_char = page_text.find(word, current_char_offset)
+        end_char = start_char + len(word)
+        current_char_offset = end_char
+        duration_ms = max(200, len(word) * 60)
+
+        timing_marks.append({
+            "word": word,
+            "start_char": start_char,
+            "end_char": end_char,
+            "time_ms": current_time_ms
+        })
+        current_time_ms += duration_ms
+
+    return {
+        "total_duration_ms": current_time_ms,
+        "timing_marks": timing_marks
     }
-]
+
+
+# ==========================================
+# TRANSLATE WORD
+# ==========================================
+@api_router.post("/translate-word")
+async def translate_word(payload: WordTranslationRequest):
+    clean_word = payload.word.strip().lower()
+
+    system_prompt = f"Translate and explain the contextual meaning of '{clean_word}' into Marathi and Hindi. Return JSON strictly with keys: 'mr', 'hi'. Return raw JSON only without markdown."
+    user_prompt = f"Translate '{clean_word}' into Marathi and Hindi."
+
+    try:
+        return await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.3)
+    except Exception as err:
+        logger.warning(f"Translation failed: {err}")
+        return {
+            "mr": f"{clean_word} (संदर्भानुसार मूळ मराठी अर्थ)",
+            "hi": f"{clean_word} (संदर्भ आधारित हिंदी अर्थ)",
+        }
+
+
+# ==========================================
+# GROQ VOICE TALK BOT
+# ==========================================
+@api_router.post("/groq-voice-talk-bot")
+async def groq_voice_talk_bot(
+    audio: UploadFile = File(...),
+    history: str = Form(default="[]")
+):
+    try:
+        audio_bytes = await audio.read()
+        filename = audio.filename or "voice_note.webm"
+        logger.info(f"🎙️ Received audio file: {filename}, Size: {len(audio_bytes)} bytes")
+
+        user_spoken_text = None
+        transcription_method = None
+
+        if FASTER_WHISPER_AVAILABLE and local_whisper:
+            try:
+                user_spoken_text = await transcribe_locally(audio_bytes)
+                if user_spoken_text and len(user_spoken_text.strip()) > 0:
+                    transcription_method = "faster-whisper"
+                    logger.info(f"✅ faster-whisper: '{user_spoken_text}'")
+            except Exception as e:
+                logger.warning(f"⚠️ faster-whisper failed: {e}")
+                user_spoken_text = None
+
+        if not user_spoken_text or len(user_spoken_text.strip()) == 0:
+            try:
+                import speech_recognition as sr
+                import tempfile
+                import os
+                import subprocess
+
+                with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_webm:
+                    temp_webm.write(audio_bytes)
+                    webm_path = temp_webm.name
+
+                wav_path = webm_path.replace('.webm', '.wav')
+
+                try:
+                    from pydub import AudioSegment
+                    audio_segment = AudioSegment.from_file(webm_path, format="webm")
+                    audio_segment.export(wav_path, format="wav")
+                except:
+                    try:
+                        subprocess.run(['ffmpeg', '-i', webm_path, wav_path], 
+                                     capture_output=True, check=True)
+                    except:
+                        wav_path = webm_path
+
+                recognizer = sr.Recognizer()
+                with sr.AudioFile(wav_path) as source:
+                    recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                    audio_data = recognizer.record(source)
+
+                    languages = ["en-US", "mr-IN", "hi-IN", "en-IN"]
+                    for lang in languages:
+                        try:
+                            user_spoken_text = recognizer.recognize_google(audio_data, language=lang)
+                            if user_spoken_text and len(user_spoken_text.strip()) > 0:
+                                transcription_method = f"google-speech-{lang}"
+                                logger.info(f"✅ Google Speech ({lang}): '{user_spoken_text}'")
+                                break
+                        except:
+                            continue
+
+                try:
+                    os.unlink(webm_path)
+                    if os.path.exists(wav_path) and wav_path != webm_path:
+                        os.unlink(wav_path)
+                except:
+                    pass
+
+            except Exception as e:
+                logger.warning(f"⚠️ Google Speech failed: {e}")
+                user_spoken_text = None
+
+        if not user_spoken_text or len(user_spoken_text.strip()) == 0:
+            try:
+                import vosk
+                import wave
+                import json
+                import tempfile
+                import os
+                import urllib.request
+                import zipfile
+
+                model_path = "models/vosk-model-small-en-us-0.15"
+                if not os.path.exists(model_path):
+                    logger.info("📥 Downloading Vosk model...")
+                    os.makedirs("models", exist_ok=True)
+                    url = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
+                    zip_path = "models/vosk-model.zip"
+                    urllib.request.urlretrieve(url, zip_path)
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        zip_ref.extractall("models")
+                    os.remove(zip_path)
+                    logger.info("✅ Vosk model downloaded!")
+
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
+                    temp_audio.write(audio_bytes)
+                    temp_path = temp_audio.name
+
+                model = vosk.Model(model_path)
+                rec = vosk.KaldiRecognizer(model, 16000)
+
+                wf = wave.open(temp_path, "rb")
+                full_text = []
+                while True:
+                    data = wf.readframes(4000)
+                    if len(data) == 0:
+                        break
+                    if rec.AcceptWaveform(data):
+                        result = json.loads(rec.Result())
+                        text = result.get("text", "")
+                        if text:
+                            full_text.append(text)
+
+                user_spoken_text = " ".join(full_text)
+
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+
+                if user_spoken_text and len(user_spoken_text.strip()) > 0:
+                    transcription_method = "vosk"
+                    logger.info(f"✅ Vosk: '{user_spoken_text}'")
+
+            except Exception as e:
+                logger.warning(f"⚠️ Vosk failed: {e}")
+                user_spoken_text = None
+
+        if not user_spoken_text or len(user_spoken_text.strip()) == 0:
+            logger.error("❌ All transcription methods failed")
+            return {
+                "reply": "I couldn't hear you clearly. Please type your message.",
+                "feedback_mr": "कृपया तुमचा संदेश टाइप करा.",
+                "soft_skill_tip": "Type your message clearly.",
+                "transcribed_text": "",
+                "method": "none"
+            }
+
+        conversation_history = []
+        try:
+            if history and history != "[]":
+                conversation_history = json.loads(history)
+        except Exception:
+            conversation_history = []
+
+        history_formatted = "\n".join([
+            f"{msg.get('sender', 'user').upper()}: {msg.get('text', '')}" 
+            for msg in conversation_history[-10:]
+        ])
+
+        system_prompt = (
+            "You are a warm, patient English conversation partner. "
+            "Reply with simple English and ask one follow-up question. "
+            "Provide encouragement in Marathi. "
+            "Return JSON: {\"reply\": \"Simple response with follow-up\", "
+            "\"feedback_mr\": \"Encouragement in Marathi\", "
+            "\"soft_skill_tip\": \"Brief tip\"}"
+        )
+
+        user_prompt = f"History:\n{history_formatted}\n\nUser said: '{user_spoken_text}'"
+
+        result = await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.7)
+
+        result.setdefault("feedback_mr", "तुमचा प्रयत्न खूप छान आहे! असेच बोलत राहा.")
+        result.setdefault("soft_skill_tip", "Practice speaking slowly and clearly.")
+        result["transcribed_text"] = user_spoken_text
+        result["method"] = transcription_method or "unknown"
+
+        return result
+
+    except Exception as e:
+        logger.error(f"❌ Error in groq-voice-talk-bot: {e}")
+        return {
+            "reply": "Voice processing error. Please type your message.",
+            "feedback_mr": "कृपया तुमचा संदेश टाइप करा.",
+            "soft_skill_tip": "Type your message clearly.",
+            "transcribed_text": "",
+            "method": "error"
+        }
+
+
+# ==========================================
+# ROOT ENDPOINT
+# ==========================================
+@app.get("/")
+async def root():
+    return {"message": "Shaabdh Saathi Progressive Learning API is operational.", "status": "healthy"}
+
+
+# ==========================================
+# EDGE TTS ENDPOINT
+# ==========================================
+@app.get("/api/tts")
+async def generate_speech(
+    text: str = Query(...),
+    language: str = Query("auto")
+):
+    try:
+        import edge_tts
+        import re
+
+        voices = {
+            "en": "en-US-JennyNeural",
+            "en-us": "en-US-JennyNeural",
+            "en-gb": "en-GB-SoniaNeural",
+            "mr": "mr-IN-AarohiNeural",
+            "hi": "hi-IN-SwaraNeural"
+        }
+
+        if language in voices:
+            voice = voices[language]
+            logger.info(f"🔊 Using {language} voice: {voice}")
+        else:
+            devanagari_pattern = re.compile(r'[\u0900-\u097F]')
+            has_devanagari = bool(devanagari_pattern.search(text))
+            latin_pattern = re.compile(r'[a-zA-Z]')
+            has_latin = bool(latin_pattern.search(text))
+
+            if has_devanagari and not has_latin:
+                voice = "mr-IN-AarohiNeural"
+                logger.info(f"🔊 Using Marathi voice for Devanagari text")
+            elif has_latin and not has_devanagari:
+                voice = "en-US-JennyNeural"
+                logger.info(f"🔊 Using American English voice for Latin text")
+            else:
+                english_words = len(re.findall(r'\b[a-zA-Z]{2,}\b', text))
+                marathi_words = len(re.findall(r'[\u0900-\u097F]+', text))
+
+                if marathi_words > english_words:
+                    voice = "mr-IN-AarohiNeural"
+                    logger.info(f"🔊 Using Marathi voice (more Marathi words)")
+                elif english_words > marathi_words:
+                    voice = "en-US-JennyNeural"
+                    logger.info(f"🔊 Using American English voice (more English words)")
+                else:
+                    voice = "en-US-JennyNeural"
+                    logger.info(f"🔊 Using American English voice (mixed, default)")
+
+        communicator = edge_tts.Communicate(text, voice=voice)
+        audio_bytes = b""
+
+        async for chunk in communicator.stream():
+            if chunk["type"] == "audio":
+                audio_bytes += chunk["data"]
+
+        return Response(content=audio_bytes, media_type="audio/mpeg")
+    except Exception as e:
+        logger.error(f"❌ Error in TTS generation: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ==========================================
@@ -2352,24 +2654,24 @@ def format_dialogue_item(item: dict) -> dict:
     movie = item.get("movie") or ""
     speaker = item.get("speaker") or ""
     context = item.get("context") or ""
-    
+
     what_it_means = (
-        item.get("what_it_means") or item.get("whatItMeans") or 
-        item.get("what_to_express") or item.get("whatToExpress") or 
+        item.get("what_it_means") or item.get("whatItMeans") or
+        item.get("what_to_express") or item.get("whatToExpress") or
         item.get("meaning") or context
     )
-    
+
     when_to_use = item.get("when_to_use") or item.get("whenToUse") or item.get("when") or ""
     where_to_use = item.get("where_to_use") or item.get("whereToUse") or item.get("where") or ""
-    
+
     how_to_use = (
-        item.get("how_to_use") or item.get("howToUse") or 
+        item.get("how_to_use") or item.get("howToUse") or
         item.get("usage") or item.get("example") or f'Say "{quote}" confidently.'
     )
-    
+
     marathi = (
-        item.get("marathi_explanation") or item.get("marathiExplanation") or 
-        item.get("marathi_summary") or item.get("marathiSummary") or 
+        item.get("marathi_explanation") or item.get("marathiExplanation") or
+        item.get("marathi_summary") or item.get("marathiSummary") or
         item.get("marathi") or item.get("marathi_meaning") or "योग्य प्रसंगी वापरा."
     )
 
@@ -2537,25 +2839,25 @@ DEFAULT_HOLLYWOOD_DIALOGUES = [format_dialogue_item(d) for d in DEFAULT_HOLLYWOO
 # ==========================================
 DOMAIN_SYSTEM_PROMPTS = {
     "Finance & Wealth": """
-You are a senior financial educator training retail investors and professionals. 
+You are a senior financial educator training retail investors and professionals.
 Writing chapter {chapter_number} of a progressive finance course.
 Progression: Tier 1 (Ch 1-3) Money mechanics; Tier 2 (Ch 4-7) Growing money; Tier 3 (Ch 8-11) Professional wealth; Tier 4 (Ch 12+) Job-ready finance.
 Concepts already covered by this user (DO NOT REPEAT THESE): {concepts_already_covered}
 """,
     "Video Editing & AI Tools": """
-You are a working video editor and AI-tools specialist. 
+You are a working video editor and AI-tools specialist.
 Writing chapter {chapter_number} of a course to make someone employable as an editor.
 Progression: Tier 1 (Ch 1-3) Fundamentals & Cuts; Tier 2 (Ch 4-7) Color & Sound craft; Tier 3 (Ch 8-11) AI-accelerated workflow; Tier 4 (Ch 12+) Getting paid.
 Concepts already covered by this user (DO NOT REPEAT THESE): {concepts_already_covered}
 """,
     "Sales & Deal Closing": """
-You are a top enterprise sales rep turned sales trainer. 
+You are a top enterprise sales rep turned sales trainer.
 Writing chapter {chapter_number} of a course for closing deals or landing sales roles.
 Progression: Tier 1 (Ch 1-3) Foundations & Discovery; Tier 2 (Ch 4-7) Persuasion & Objections; Tier 3 (Ch 8-11) Negotiation; Tier 4 (Ch 12+) Closing & Career.
 Concepts already covered by this user (DO NOT REPEAT THESE): {concepts_already_covered}
 """,
     "Hollywood Dialogues & Expressions": """
-You are a working screenwriter and script consultant. 
+You are a working screenwriter and script consultant.
 Writing chapter {chapter_number} of a course teaching professional dialogue writing and cinematic expressions.
 Progression: Tier 1 (Ch 1-3) Subtext & Voice; Tier 2 (Ch 4-7) Conflict & Rhythm; Tier 3 (Ch 8-11) Scene Dynamics; Tier 4 (Ch 12+) Industry Formats.
 Concepts already covered by this user (DO NOT REPEAT THESE): {concepts_already_covered}
@@ -2591,10 +2893,10 @@ Return raw JSON only without markdown.
 
 
 # ==========================================
-# ENHANCED HELPER LOGIC FOR HOLLYWOOD DIALOGUES
+# GENERATE DIALOGUES LIST (STATIC FALLBACK)
 # ==========================================
 async def generate_dialogues_list(
-    req_page: int = 1, 
+    req_page: int = 1,
     force_fresh: bool = True
 ) -> List[Dict[str, Any]]:
     selected_theme = random.choice(DIALOGUE_THEMES)
@@ -2625,7 +2927,7 @@ Return JSON strictly with key 'dialogues' containing an array of exactly 10 obje
         logger.info(f"⚡ Requesting dialogues cascade (Page: {req_page}, Theme: {selected_theme})...")
         data = await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.9)
         if isinstance(data, dict) and "dialogues" in data and isinstance(data["dialogues"], list) and len(data["dialogues"]) > 0:
-            logger.info("✅ Fallback dialogues generated successfully!")
+            logger.info("✅ Dialogues generated successfully!")
             return [format_dialogue_item(d) for d in data["dialogues"]]
     except Exception as err:
         logger.error(f"❌ All LLM providers failed for dialogues: {err}")
@@ -2637,7 +2939,7 @@ Return JSON strictly with key 'dialogues' containing an array of exactly 10 obje
 
 
 # ==========================================
-# CORE CHAPTER GENERATION LOGIC
+# CORE CHAPTER GENERATION LOGIC (FIXED)
 # ==========================================
 async def process_chapter_generation(user_id: str, raw_domain: str, chapter_number: int):
     matched_domain = DOMAIN_ALIASES.get(raw_domain.strip().lower(), "Finance & Wealth")
@@ -2662,7 +2964,7 @@ async def process_chapter_generation(user_id: str, raw_domain: str, chapter_numb
             raw_dialogues = cached_chapter.get("dialogues")
             if not raw_dialogues or not isinstance(raw_dialogues, list):
                 cached_chapter["dialogues"] = await generate_dialogues_list(
-                    req_page=chapter_number, 
+                    req_page=chapter_number,
                     force_fresh=True
                 )
             else:
@@ -2689,9 +2991,16 @@ async def process_chapter_generation(user_id: str, raw_domain: str, chapter_numb
         generated_data = await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.7)
     except Exception as err:
         logger.warning(f"All LLM providers failed chapter generation: {err}")
+        generated_data = {}
 
+    # CRITICAL: Ensure generated_data is a dictionary
+    if not isinstance(generated_data, dict):
+        logger.warning(f"LLM returned non-dict: {type(generated_data)}. Forcing fallback.")
+        generated_data = {}
+
+    # If the LLM response doesn't contain page_content, fallback to static chapter
     if not generated_data or "page_content" not in generated_data:
-        generated_data = {
+        fallback = {
             "chapter_title": domain_default_titles.get(matched_domain, f"Chapter {chapter_number}: Advanced {matched_domain}"),
             "page_content": (
                 f"Paragraph 1: Building upon prior milestones in {matched_domain}, Chapter {chapter_number} "
@@ -2705,6 +3014,17 @@ async def process_chapter_generation(user_id: str, raw_domain: str, chapter_numb
             "new_concepts": ["Core Mechanics", "Practical Application"]
         }
 
+        # Ensure Hollywood domain always gets dialogues
+        if matched_domain == "Hollywood Dialogues & Expressions":
+            fallback["dialogues"] = await generate_dialogues_list(req_page=chapter_number, force_fresh=True)
+
+        generated_data = fallback
+
+    # Second safety: if matched_domain is Hollywood, ensure dialogues key exists
+    if matched_domain == "Hollywood Dialogues & Expressions" and "dialogues" not in generated_data:
+        generated_data["dialogues"] = await generate_dialogues_list(req_page=chapter_number, force_fresh=True)
+
+    # Save to cache
     doc_to_save = {
         "user_id": user_id,
         "domain": matched_domain,
@@ -2716,271 +3036,15 @@ async def process_chapter_generation(user_id: str, raw_domain: str, chapter_numb
         {"$set": doc_to_save},
         upsert=True
     )
+
     return generated_data
 
 
 # ==========================================
-# PROGRESS TRACKING ENDPOINT
+# INCLUDE ROUTER AND RUN (REMOVED __main__ FOR SERVERLESS)
 # ==========================================
-@api_router.post("/progress/complete")
-async def complete_progress(
-    payload: Optional[ProgressUpdateRequest] = None,
-    skill: Optional[str] = Query(None),
-    xp: Optional[int] = Query(None),
-    words: Optional[int] = Query(0),
-    user_id: Optional[str] = Query(None),
-):
-    target_skill = payload.skill if payload else skill
-    target_xp = payload.xp if payload else (xp or 0)
-    target_user_id = payload.user_id if payload else user_id
-
-    if not target_skill:
-        raise HTTPException(status_code=400, detail="Skill parameter is required")
-
-    try:
-        if not target_user_id:
-            users = await db.users.find({}).to_list(1)
-            if users:
-                target_user_id = users[0]["id"]
-            else:
-                raise HTTPException(status_code=404, detail="No user found")
-
-        user = await db.users.find_one({"id": target_user_id})
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        new_xp = user.get("xp", 0) + target_xp
-        new_level = user.get("level", 1)
-        if new_xp >= new_level * 150:
-            new_level += 1
-
-        skills = user.get("skills", {})
-        if target_skill in skills:
-            skills[target_skill] = min(100, skills.get(target_skill, 0) + 5)
-
-        await db.users.update_one(
-            {"id": target_user_id},
-            {
-                "$set": {
-                    "xp": new_xp,
-                    "level": new_level,
-                    "skills": skills,
-                    "streak": user.get("streak", 0) + 1,
-                    "last_active": datetime.now(timezone.utc).isoformat(),
-                }
-            },
-        )
-
-        updated = await db.users.find_one({"id": target_user_id})
-        updated.pop("_id", None)
-        return {"user": updated, "new_badges": []}
-    except Exception as e:
-        logger.error(f"Progress error: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-# ==========================================
-# HOLLYWOOD DIALOGUES ENDPOINTS
-# ==========================================
-@api_router.get("/hollywood-dialogues")
-async def fetch_hollywood_dialogues_get(page: int = Query(1)):
-    try:
-        dialogues = await generate_dialogues_list(req_page=page, force_fresh=True)
-        return {"dialogues": dialogues}
-    except Exception as e:
-        logger.error(f"Error in dialogues GET: {e}")
-        return {"dialogues": [], "error": "Failed to generate dialogues"}
-
-
-@api_router.post("/hollywood-dialogues")
-async def fetch_hollywood_dialogues_post(payload: Optional[DialoguesRequest] = None):
-    try:
-        req_page = payload.page if payload and payload.page else random.randint(1, 100)
-        dialogues = await generate_dialogues_list(req_page=req_page, force_fresh=True)
-        return {"dialogues": dialogues}
-    except Exception as e:
-        logger.error(f"Error in dialogues POST: {e}")
-        return {"dialogues": [], "error": "Failed to generate dialogues"}
-
-
-# ==========================================
-# READING & PRONUNCIATION BOT API
-# ==========================================
-@api_router.post("/reading/pronunciation-bot")
-async def pronunciation_bot(payload: PronunciationBotRequest):
-    sentence = payload.sentence.strip()
-    if not sentence:
-        raise HTTPException(status_code=400, detail="Sentence cannot be empty")
-
-    system_prompt = f"""
-Analyze the sentence: "{sentence}"
-Provide word-by-word pronunciation breakdowns, phonetic spellings, stress points, audio pacing/pause markers, and Marathi explanation tips for learners.
-Return JSON strictly with schema:
-{{
-  "sentence": "{sentence}",
-  "word_breakdowns": [
-    {{
-      "word": "Word",
-      "phonetic": "PHONETIC",
-      "stress": "Stress detail",
-      "pause_recommended": "Short pause / None",
-      "tip": "Marathi pronunciation tip"
-    }}
-  ],
-  "pacing_tip": "Overall pacing and audio guide tip in English & Marathi."
-}}
-Return raw JSON only without markdown.
-"""
-
-    user_prompt = f"Analyze the sentence: {sentence}"
-
-    try:
-        return await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.3)
-    except Exception as err:
-        logger.warning(f"Pronunciation bot failed: {err}")
-        words = sentence.split()
-        breakdowns = [{
-            "word": w,
-            "phonetic": f"{w.lower()}-phonetic",
-            "stress": "Standard stress",
-            "pause_recommended": "Short pause",
-            "tip": f"उच्चार स्पष्ट करा: {w}"
-        } for w in words]
-        return {
-            "sentence": sentence,
-            "word_breakdowns": breakdowns,
-            "pacing_tip": "वाचताना प्रत्येक शब्दावर लक्ष ठेवा आणि स्वल्पविरामाजवळ (comma) थोडा थंबा."
-        }
-
-
-# ==========================================
-# TTS SPEECH MARKS API
-# ==========================================
-@api_router.post("/reading/tts-marks")
-async def generate_tts_speech_marks(payload: TTSMarksRequest):
-    page_text = payload.page_text or ""
-    words = page_text.split()
-    
-    timing_marks = []
-    current_time_ms = 0
-    current_char_offset = 0
-
-    for word in words:
-        start_char = page_text.find(word, current_char_offset)
-        end_char = start_char + len(word)
-        current_char_offset = end_char
-        duration_ms = max(200, len(word) * 60)
-        
-        timing_marks.append({
-            "word": word,
-            "start_char": start_char,
-            "end_char": end_char,
-            "time_ms": current_time_ms
-        })
-        current_time_ms += duration_ms
-
-    return {
-        "total_duration_ms": current_time_ms,
-        "timing_marks": timing_marks
-    }
-
-
-# ==========================================
-# TRANSLATION & VOCABULARY ENDPOINTS
-# ==========================================
-@api_router.post("/translate-word")
-async def translate_word(payload: WordTranslationRequest):
-    clean_word = payload.word.strip().lower()
-
-    system_prompt = f"Translate and explain the contextual meaning of '{clean_word}' into Marathi and Hindi. Return JSON strictly with keys: 'mr', 'hi'. Return raw JSON only without markdown."
-    user_prompt = f"Translate '{clean_word}' into Marathi and Hindi."
-
-    try:
-        return await call_llm_with_fallback(system_prompt, user_prompt, temperature=0.3)
-    except Exception as err:
-        logger.warning(f"Translation failed: {err}")
-        return {
-            "mr": f"{clean_word} (संदर्भानुसार मूळ मराठी अर्थ)",
-            "hi": f"{clean_word} (संदर्भ आधारित हिंदी अर्थ)",
-        }
-
-
-# ==========================================
-# ROOT ENDPOINT
-# ==========================================
-@app.get("/")
-async def root():
-    return {"message": "Shaabdh Saathi Progressive Learning API is operational.", "status": "healthy"}
-
-
-# ==========================================
-# EDGE TTS ENDPOINT
-# ==========================================
-@app.get("/api/tts")
-async def generate_speech(
-    text: str = Query(...),
-    language: str = Query("auto")
-):
-    try:
-        import edge_tts
-        import re
-        
-        voices = {
-            "en": "en-US-JennyNeural",
-            "en-us": "en-US-JennyNeural",
-            "en-gb": "en-GB-SoniaNeural",
-            "mr": "mr-IN-AarohiNeural",
-            "hi": "hi-IN-SwaraNeural"
-        }
-        
-        if language in voices:
-            voice = voices[language]
-            logger.info(f"🔊 Using {language} voice: {voice}")
-        else:
-            devanagari_pattern = re.compile(r'[\u0900-\u097F]')
-            has_devanagari = bool(devanagari_pattern.search(text))
-            latin_pattern = re.compile(r'[a-zA-Z]')
-            has_latin = bool(latin_pattern.search(text))
-            
-            if has_devanagari and not has_latin:
-                voice = "mr-IN-AarohiNeural"
-                logger.info(f"🔊 Using Marathi voice for Devanagari text")
-            elif has_latin and not has_devanagari:
-                voice = "en-US-JennyNeural"
-                logger.info(f"🔊 Using American English voice for Latin text")
-            else:
-                english_words = len(re.findall(r'\b[a-zA-Z]{2,}\b', text))
-                marathi_words = len(re.findall(r'[\u0900-\u097F]+', text))
-                
-                if marathi_words > english_words:
-                    voice = "mr-IN-AarohiNeural"
-                    logger.info(f"🔊 Using Marathi voice (more Marathi words)")
-                elif english_words > marathi_words:
-                    voice = "en-US-JennyNeural"
-                    logger.info(f"🔊 Using American English voice (more English words)")
-                else:
-                    voice = "en-US-JennyNeural"
-                    logger.info(f"🔊 Using American English voice (mixed, default)")
-        
-        communicator = edge_tts.Communicate(text, voice=voice)
-        audio_bytes = b""
-        
-        async for chunk in communicator.stream():
-            if chunk["type"] == "audio":
-                audio_bytes += chunk["data"]
-
-        return Response(content=audio_bytes, media_type="audio/mpeg")
-    except Exception as e:
-        logger.error(f"❌ Error in TTS generation: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-# Include the API Router
 app.include_router(api_router)
 
-# ==========================================
-# REMOVED __main__ block for serverless deployment
-# ==========================================
-# if __name__ == "__main__":
-#     import uvicorn
-#     uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+# ──────────────────────────────────────────────────────────────
+# The __main__ block is removed for Render (serverless).
+# ──────────────────────────────────────────────────────────────
