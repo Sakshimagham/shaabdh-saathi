@@ -28,11 +28,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==========================================
-# API Secret Token (for production)
-# ==========================================
-API_SECRET_TOKEN = os.environ.get("API_SECRET_TOKEN", "change_me_in_production")
-
-# ==========================================
 # PDF AND DOCX SUPPORT IMPORTS
 # ==========================================
 try:
@@ -743,7 +738,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Enable CORS for frontend integration (restricted to production domain)
+# Enable CORS for frontend integration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://shaabdh-saathi.vercel.app"],
@@ -1196,7 +1191,7 @@ async def analyze_resume(
         raise
     except Exception as e:
         logger.error(f"Error in resume analysis: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @api_router.post("/interview/generate-questions")
@@ -1374,7 +1369,7 @@ async def interview_practice(payload: InterviewPracticeRequest):
         
     except Exception as e:
         logger.error(f"Error in interview practice: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @api_router.post("/interview/feedback")
@@ -1429,7 +1424,7 @@ async def interview_feedback(payload: InterviewFeedbackRequest):
         
     except Exception as e:
         logger.error(f"Error in interview feedback: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @api_router.get("/interview/session/{user_id}")
@@ -1456,7 +1451,7 @@ async def get_interview_session(user_id: str):
         
     except Exception as e:
         logger.error(f"Error fetching interview session: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @api_router.post("/interview/save-session")
@@ -1490,7 +1485,7 @@ async def save_interview_session(payload: Dict[str, Any]):
         
     except Exception as e:
         logger.error(f"Error saving interview session: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ==========================================
@@ -1584,7 +1579,7 @@ async def analyze_jd(payload: Dict[str, Any]):
         raise
     except Exception as e:
         logger.error(f"Error in JD analysis: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ==========================================
@@ -1758,7 +1753,7 @@ async def interview_voice_transcribe(
         return {
             "transcribed_text": "",
             "success": False,
-            "error": "Internal server error"
+            "error": str(e)
         }
 
 
@@ -1796,28 +1791,18 @@ async def login(user: UserLogin):
         new_user.pop("_id", None)
         return new_user
     except Exception as e:
-        logger.error(f"Login error: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @api_router.get("/me")
-async def get_current_user(
-    x_user_id: Optional[str] = Header(None),
-    x_api_token: Optional[str] = Header(None)
-):
+async def get_current_user(x_user_id: Optional[str] = Header(None)):
     if not x_user_id:
         raise HTTPException(status_code=401, detail="User ID header missing")
-    if not x_api_token or x_api_token != API_SECRET_TOKEN:
-        raise HTTPException(status_code=403, detail="Invalid or missing API token")
-    try:
-        user = await db.users.find_one({"id": x_user_id})
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        user.pop("_id", None)
-        return user
-    except Exception as e:
-        logger.error(f"Error fetching user: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+    user = await db.users.find_one({"id": x_user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.pop("_id", None)
+    return user
 
 
 # ==========================================
@@ -1833,7 +1818,7 @@ async def get_or_generate_chapter(payload: ChapterGenerationRequest):
         )
     except Exception as e:
         logger.error(f"Error in chapter generation: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @api_router.post("/generate-passage")
@@ -1851,7 +1836,7 @@ async def generate_passage_legacy(payload: Optional[Dict[str, Any]] = None):
         )
     except Exception as e:
         logger.error(f"Error in generate-passage legacy route: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ==========================================
@@ -2340,7 +2325,7 @@ async def groq_session_metrics(payload: MetricsRequest):
         
     except Exception as e:
         logger.error(f"Error in session metrics: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ==========================================
@@ -2428,7 +2413,7 @@ async def transcribe_audio(payload: Dict[str, Any]):
         
     except Exception as e:
         logger.error(f"Error in transcribe-audio: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ==========================================
@@ -2928,8 +2913,7 @@ async def complete_progress(
         updated.pop("_id", None)
         return {"user": updated, "new_badges": []}
     except Exception as e:
-        logger.error(f"Progress error: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ==========================================
@@ -2938,24 +2922,16 @@ async def complete_progress(
 @api_router.get("/hollywood-dialogues")
 async def fetch_hollywood_dialogues_get(page: int = Query(1)):
     """Fetch Hollywood dialogues - always generates fresh dialogues on request."""
-    try:
-        dialogues = await generate_dialogues_list(req_page=page, force_fresh=True)
-        return {"dialogues": dialogues}
-    except Exception as e:
-        logger.error(f"Error in dialogues GET: {e}")
-        return {"dialogues": [], "error": "Failed to generate dialogues"}
+    dialogues = await generate_dialogues_list(req_page=page, force_fresh=True)
+    return {"dialogues": dialogues}
 
 
 @api_router.post("/hollywood-dialogues")
 async def fetch_hollywood_dialogues_post(payload: Optional[DialoguesRequest] = None):
     """Fetch Hollywood dialogues with optional page parameter - always fresh."""
-    try:
-        req_page = payload.page if payload and payload.page else random.randint(1, 100)
-        dialogues = await generate_dialogues_list(req_page=req_page, force_fresh=True)
-        return {"dialogues": dialogues}
-    except Exception as e:
-        logger.error(f"Error in dialogues POST: {e}")
-        return {"dialogues": [], "error": "Failed to generate dialogues"}
+    req_page = payload.page if payload and payload.page else random.randint(1, 100)
+    dialogues = await generate_dialogues_list(req_page=req_page, force_fresh=True)
+    return {"dialogues": dialogues}
 
 
 # ==========================================
@@ -3069,14 +3045,6 @@ async def root():
 
 
 # ==========================================
-# HEALTH CHECK ENDPOINT
-# ==========================================
-@app.get("/health")
-async def health_check():
-    return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
-
-
-# ==========================================
 # EDGE TTS ENDPOINT
 # ==========================================
 @app.get("/api/tts")
@@ -3142,14 +3110,13 @@ async def generate_speech(
         return Response(content=audio_bytes, media_type="audio/mpeg")
     except Exception as e:
         logger.error(f"❌ Error in TTS generation: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # Include the API Router
 app.include_router(api_router)
 
 
-# ==========================================
-# REMOVED: __main__ block (for Vercel)
-# ==========================================
-# The app is now ready to be imported as an ASGI application.
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
