@@ -551,31 +551,54 @@ def generate_fallback_questions(role: str, count: int) -> List[Dict]:
 
 
 # ==========================================
-# LLM JSON EXTRACTION HELPER
+# IMPROVED JSON EXTRACTION (with repair)
 # ==========================================
 def extract_json_from_llm_response(raw: str) -> dict:
-    """Extract JSON from a string that may contain markdown code blocks."""
+    """Extract JSON from a string that may contain markdown code blocks or truncated JSON."""
     if not raw:
         return {}
-    # Try to find ```json ... ``` block
-    match = re.search(r'```json\s*([\s\S]*?)\s*```', raw)
-    if match:
-        raw_json = match.group(1)
-    else:
-        # Try to find just a JSON object
-        match = re.search(r'\{[\s\S]*\}', raw)
-        if match:
-            raw_json = match.group(0)
-        else:
-            return {}
+    # Remove markdown code fences
+    cleaned = re.sub(r'^```(?:json)?\s*', '', raw.strip(), flags=re.IGNORECASE)
+    cleaned = re.sub(r'\s*```$', '', cleaned).strip()
+    # Find the first '{' and last '}' to get a JSON object substring
+    start = cleaned.find('{')
+    end = cleaned.rfind('}')
+    if start == -1 or end == -1:
+        return {}
+    json_str = cleaned[start:end+1]
+
+    # Try to parse as-is
     try:
-        return json.loads(raw_json)
+        return json.loads(json_str)
     except json.JSONDecodeError:
+        # Try to repair: add missing closing braces if it's truncated
+        open_braces = json_str.count('{')
+        close_braces = json_str.count('}')
+        if open_braces > close_braces:
+            json_str += '}' * (open_braces - close_braces)
+            try:
+                return json.loads(json_str)
+            except:
+                pass
+        # Try to extract the first complete JSON object using a stack
+        stack = []
+        for i, ch in enumerate(json_str):
+            if ch == '{':
+                stack.append(i)
+            elif ch == '}':
+                if stack:
+                    start_candidate = stack.pop()
+                    if not stack:
+                        candidate = json_str[start_candidate:i+1]
+                        try:
+                            return json.loads(candidate)
+                        except:
+                            continue
         return {}
 
 
 # ==========================================
-# MULTI-PROVIDER LLM FALLBACK EXECUTER (UPDATED)
+# MULTI-PROVIDER LLM FALLBACK EXECUTER (FINAL)
 # ==========================================
 async def call_llm_with_fallback(
     system_prompt: str,
@@ -584,19 +607,19 @@ async def call_llm_with_fallback(
 ) -> dict:
     errors = []
 
+    # Try Groq
     if groq_client:
-        # ✅ CORRECTED Groq model names (as of August 2026)
         groq_models = [
-            "llama-3.3-70b-versatile",   # best quality
-    "llama-3.1-8b-instant",      # fast
-    "mixtral-8x7b-32768"         # alternative
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant",
+            "mixtral-8x7b-32768"
         ]
         for model in groq_models:
             try:
                 logger.info(f"⚡ Trying Groq model: {model}")
-
-                truncated_system = system_prompt[:3000] if len(system_prompt) > 3000 else system_prompt
-                truncated_user = user_prompt[:3000] if len(user_prompt) > 3000 else user_prompt
+                # Truncate prompts to 8000 chars to avoid token overflow
+                truncated_system = system_prompt[:8000] if len(system_prompt) > 8000 else system_prompt
+                truncated_user = user_prompt[:8000] if len(user_prompt) > 8000 else user_prompt
 
                 response = await groq_client.chat.completions.create(
                     model=model,
@@ -605,8 +628,8 @@ async def call_llm_with_fallback(
                         {"role": "user", "content": truncated_user},
                     ],
                     temperature=temperature,
-                    max_tokens=1500,
                     response_format={"type": "json_object"},
+                    # No max_tokens – use API default
                 )
                 raw = response.choices[0].message.content
                 result = extract_json_from_llm_response(raw)
@@ -624,6 +647,7 @@ async def call_llm_with_fallback(
                 await asyncio.sleep(0.1)
                 continue
 
+    # Try OpenRouter
     if openrouter_client:
         openrouter_models = [
             "deepseek/deepseek-chat",
@@ -637,12 +661,11 @@ async def call_llm_with_fallback(
                 response = await openrouter_client.chat.completions.create(
                     model=model,
                     messages=[
-                        {"role": "system", "content": system_prompt[:3000]},
-                        {"role": "user", "content": user_prompt[:3000]},
+                        {"role": "system", "content": system_prompt[:8000]},
+                        {"role": "user", "content": user_prompt[:8000]},
                     ],
                     temperature=temperature,
-                    max_tokens=1500,
-                    response_format={"type": "json_object"},
+                    # No response_format for OpenRouter to avoid errors
                     extra_headers={
                         "HTTP-Referer": "http://localhost:3000",
                         "X-Title": "Shaabdh Saathi",
@@ -660,6 +683,7 @@ async def call_llm_with_fallback(
                 await asyncio.sleep(0.1)
                 continue
 
+    # Try Gemini
     if gemini_client:
         available_gemini_models = await get_available_gemini_models()
         gemini_model_priority = [
@@ -685,7 +709,7 @@ async def call_llm_with_fallback(
         for model_name in models_to_try:
             try:
                 logger.info(f"⚡ Fallback: Trying Google Gemini ({model_name})...")
-                prompt_combined = f"{system_prompt[:3000]}\n\nUser Input:\n{user_prompt[:3000]}"
+                prompt_combined = f"{system_prompt[:8000]}\n\nUser Input:\n{user_prompt[:8000]}"
 
                 response = gemini_client.models.generate_content(
                     model=model_name,
@@ -693,7 +717,7 @@ async def call_llm_with_fallback(
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
                         temperature=temperature,
-                        max_output_tokens=1500,
+                        # No max_output_tokens – use API default
                     )
                 )
                 raw = response.text
@@ -733,22 +757,18 @@ app = FastAPI(
 )
 
 # ==========================================
-# PRODUCTION CORS – allow only your frontend(s)
+# PRODUCTION CORS – allow all for simplicity
 # ==========================================
-ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "https://shaabdh-saathi.vercel.app")
-ALLOWED_ORIGINS_LIST = [origin.strip() for origin in ALLOWED_ORIGINS.split(",") if origin.strip()]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS_LIST,
-    allow_origin_regex=r"https://.*\.vercel\.app",
-    allow_credentials=False,
+    allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ==========================================
-# GLOBAL EXCEPTION HANDLER (production)
+# GLOBAL EXCEPTION HANDLER
 # ==========================================
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -758,6 +778,9 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": "Internal server error. Please try again later."}
     )
 
+# ==========================================
+# MAIN API ROUTER (prefix /api)
+# ==========================================
 api_router = APIRouter(prefix="/api")
 
 
@@ -765,7 +788,6 @@ api_router = APIRouter(prefix="/api")
 # PYDANTIC MODELS
 # ==========================================
 class UserLogin(BaseModel):
-    # Allow extra fields so frontend payloads with additional keys don't fail
     model_config = ConfigDict(extra='allow')
     name: str
     contact: str
@@ -838,9 +860,6 @@ class MetricsRequest(BaseModel):
     level: Optional[int] = 1
 
 
-# ==========================================
-# INTERVIEW PREPARATION MODELS
-# ==========================================
 class InterviewPracticeRequest(BaseModel):
     question: str
     user_answer: str
@@ -855,7 +874,7 @@ class InterviewFeedbackRequest(BaseModel):
 
 
 # ==========================================
-# HEALTH CHECK ENDPOINT
+# HEALTH CHECK
 # ==========================================
 @api_router.get("/health")
 async def health_check():
@@ -863,7 +882,7 @@ async def health_check():
 
 
 # ==========================================
-# AUTH & USER ENDPOINTS (UPDATED)
+# AUTH & USER
 # ==========================================
 @api_router.post("/auth/login")
 async def login(user: UserLogin):
@@ -912,9 +931,8 @@ async def get_current_user(x_user_id: Optional[str] = Header(None)):
 
 
 # ==========================================
-# DIALOGUES ENDPOINTS (BOTH NAMES)
+# DIALOGUES
 # ==========================================
-# The /dialogues route (as previously used)
 @api_router.get("/dialogues")
 async def get_dialogues(page: int = Query(1, ge=1)):
     try:
@@ -925,7 +943,6 @@ async def get_dialogues(page: int = Query(1, ge=1)):
         return {"dialogues": []}
 
 
-# The /hollywood-dialogues route (new)
 @api_router.get("/hollywood-dialogues")
 async def fetch_hollywood_dialogues_get(page: int = Query(1)):
     try:
@@ -948,7 +965,7 @@ async def fetch_hollywood_dialogues_post(payload: Optional[DialoguesRequest] = N
 
 
 # ==========================================
-# GENERATE PASSAGE (UPDATED WITH ROBUST FALLBACK)
+# GENERATE PASSAGE (CHAPTERS)
 # ==========================================
 @api_router.post("/generate-passage")
 async def generate_passage_legacy(payload: Optional[Dict[str, Any]] = None):
@@ -964,13 +981,18 @@ async def generate_passage_legacy(payload: Optional[Dict[str, Any]] = None):
             chapter_number=chapter_number
         )
     except Exception as e:
-        logger.error(f"Error in generate-passage: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        logger.error(f"Error in generate-passage: {e}", exc_info=True)
+        # This fallback is only for extreme errors – should not happen if LLM works
+        return {
+            "chapter_title": f"Chapter {chapter_number}: {domain} (Fallback)",
+            "page_content": "We encountered an issue generating content. Please try again later.",
+            "marathi_summary": "सामग्री मिळवण्यात त्रुटी आली. कृपया पुन्हा प्रयत्न करा.",
+            "key_takeaway": "Refresh and try again",
+            "action_item": "Refresh the page",
+            "new_concepts": ["Error Recovery"]
+        }
 
 
-# ==========================================
-# READING CHAPTER (REST) ENDPOINT
-# ==========================================
 @api_router.post("/reading/chapter")
 async def get_or_generate_chapter(payload: ChapterGenerationRequest):
     try:
@@ -985,7 +1007,7 @@ async def get_or_generate_chapter(payload: ChapterGenerationRequest):
 
 
 # ==========================================
-# PROGRESS TRACKING ENDPOINT
+# PROGRESS
 # ==========================================
 @api_router.post("/progress/complete")
 async def complete_progress(
@@ -1045,7 +1067,7 @@ async def complete_progress(
 
 
 # ==========================================
-# INTERVIEW PREPARATION ENDPOINTS
+# INTERVIEW ENDPOINTS (COMPLETE)
 # ==========================================
 @api_router.post("/interview/analyze-resume")
 async def analyze_resume(
@@ -1707,7 +1729,7 @@ async def interview_voice_transcribe(
 
 
 # ==========================================
-# WRITING PROMPT & EVALUATION ENDPOINTS
+# WRITING PROMPT & EVALUATION
 # ==========================================
 WRITING_CATEGORIES = [
     "Personal Experiences & Life Events",
@@ -1857,7 +1879,7 @@ async def evaluate_writing(req: WritingEvalRequest):
 
 
 # ==========================================
-# ENHANCED TALKING BOT
+# TALKING BOT
 # ==========================================
 @api_router.post("/groq-talk-bot")
 async def groq_talk_bot(payload: TalkBotRequest):
@@ -2005,7 +2027,7 @@ async def groq_talk_bot(payload: TalkBotRequest):
             return result
 
         else:
-            # NON-INITIAL MESSAGES - Can use improvement words
+            # NON-INITIAL MESSAGES
             exchange_count = user_message_count
 
             if exchange_count <= 2:
@@ -2211,7 +2233,7 @@ async def groq_session_metrics(payload: MetricsRequest):
 
 
 # ==========================================
-# TRANSCRIBE AUDIO ENDPOINT
+# TRANSCRIBE AUDIO
 # ==========================================
 @api_router.post("/transcribe-audio")
 async def transcribe_audio(payload: Dict[str, Any]):
@@ -2653,7 +2675,7 @@ async def generate_speech(
 
 
 # ==========================================
-# UNIVERSAL DIALOGUE DATA FORMATTER
+# UNIVERSAL DIALOGUE DATA FORMATTER & HELPERS
 # ==========================================
 def format_dialogue_item(item: dict) -> dict:
     quote = item.get("quote") or item.get("dialogue") or item.get("expression") or ""
@@ -2705,9 +2727,6 @@ def format_dialogue_item(item: dict) -> dict:
     }
 
 
-# ==========================================
-# DYNAMIC THEMES FOR FRESH DIALOGUES
-# ==========================================
 DIALOGUE_THEMES = [
     "Sci-Fi & Cyberpunk classics",
     "Action & Superhero thrillers",
@@ -2841,7 +2860,7 @@ DEFAULT_HOLLYWOOD_DIALOGUES = [format_dialogue_item(d) for d in DEFAULT_HOLLYWOO
 
 
 # ==========================================
-# 4 DOMAINS SYSTEM PROMPTS & PROGRESSION
+# DOMAINS AND CHAPTER GENERATION
 # ==========================================
 DOMAIN_SYSTEM_PROMPTS = {
     "Finance & Wealth": """
@@ -2898,9 +2917,6 @@ Return raw JSON only without markdown.
 """
 
 
-# ==========================================
-# GENERATE DIALOGUES LIST (STATIC FALLBACK)
-# ==========================================
 async def generate_dialogues_list(
     req_page: int = 1,
     force_fresh: bool = True
@@ -2944,9 +2960,6 @@ Return JSON strictly with key 'dialogues' containing an array of exactly 10 obje
     return shuffled_defaults
 
 
-# ==========================================
-# CORE CHAPTER GENERATION LOGIC (FIXED)
-# ==========================================
 async def process_chapter_generation(user_id: str, raw_domain: str, chapter_number: int):
     matched_domain = DOMAIN_ALIASES.get(raw_domain.strip().lower(), "Finance & Wealth")
     if matched_domain == "Finance & Wealth" and raw_domain.strip().lower() not in DOMAIN_ALIASES:
@@ -2999,12 +3012,10 @@ async def process_chapter_generation(user_id: str, raw_domain: str, chapter_numb
         logger.warning(f"All LLM providers failed chapter generation: {err}")
         generated_data = {}
 
-    # CRITICAL: Ensure generated_data is a dictionary
     if not isinstance(generated_data, dict):
         logger.warning(f"LLM returned non-dict: {type(generated_data)}. Forcing fallback.")
         generated_data = {}
 
-    # If the LLM response doesn't contain page_content, fallback to static chapter
     if not generated_data or "page_content" not in generated_data:
         fallback = {
             "chapter_title": domain_default_titles.get(matched_domain, f"Chapter {chapter_number}: Advanced {matched_domain}"),
@@ -3020,17 +3031,14 @@ async def process_chapter_generation(user_id: str, raw_domain: str, chapter_numb
             "new_concepts": ["Core Mechanics", "Practical Application"]
         }
 
-        # Ensure Hollywood domain always gets dialogues
         if matched_domain == "Hollywood Dialogues & Expressions":
             fallback["dialogues"] = await generate_dialogues_list(req_page=chapter_number, force_fresh=True)
 
         generated_data = fallback
 
-    # Second safety: if matched_domain is Hollywood, ensure dialogues key exists
     if matched_domain == "Hollywood Dialogues & Expressions" and "dialogues" not in generated_data:
         generated_data["dialogues"] = await generate_dialogues_list(req_page=chapter_number, force_fresh=True)
 
-    # Save to cache
     doc_to_save = {
         "user_id": user_id,
         "domain": matched_domain,
@@ -3047,10 +3055,135 @@ async def process_chapter_generation(user_id: str, raw_domain: str, chapter_numb
 
 
 # ==========================================
-# INCLUDE ROUTER AND RUN (REMOVED __main__ FOR SERVERLESS)
+# INCLUDE THE MAIN ROUTER
 # ==========================================
 app.include_router(api_router)
 
-# ──────────────────────────────────────────────────────────────
-# The __main__ block is removed for Render (serverless).
-# ──────────────────────────────────────────────────────────────
+
+# ==========================================
+# 🔥 COMPATIBILITY LAYER: Mirror all /api routes to root level
+# This ensures that frontend calls without /api prefix still work.
+# ==========================================
+@app.post("/auth/login")
+async def auth_login_no_prefix(user: UserLogin):
+    return await login(user)
+
+@app.get("/me")
+async def me_no_prefix(x_user_id: Optional[str] = Header(None)):
+    return await get_current_user(x_user_id)
+
+@app.post("/generate-passage")
+async def generate_passage_no_prefix(payload: Optional[Dict[str, Any]] = None):
+    return await generate_passage_legacy(payload)
+
+@app.post("/reading/chapter")
+async def reading_chapter_no_prefix(payload: ChapterGenerationRequest):
+    return await get_or_generate_chapter(payload)
+
+@app.post("/progress/complete")
+async def progress_complete_no_prefix(
+    payload: Optional[ProgressUpdateRequest] = None,
+    skill: Optional[str] = Query(None),
+    xp: Optional[int] = Query(None),
+    words: Optional[int] = Query(0),
+    user_id: Optional[str] = Query(None),
+):
+    return await complete_progress(payload, skill, xp, words, user_id)
+
+@app.post("/interview/analyze-resume")
+async def analyze_resume_no_prefix(
+    file: UploadFile = File(None),
+    resume_text: str = Form(None),
+    job_description: str = Form(""),
+    user_id: str = Form(None)
+):
+    return await analyze_resume(file, resume_text, job_description, user_id)
+
+@app.post("/interview/generate-questions")
+async def generate_questions_no_prefix(payload: Dict[str, Any]):
+    return await generate_interview_questions(payload)
+
+@app.post("/interview/practice")
+async def interview_practice_no_prefix(payload: InterviewPracticeRequest):
+    return await interview_practice(payload)
+
+@app.post("/interview/feedback")
+async def interview_feedback_no_prefix(payload: InterviewFeedbackRequest):
+    return await interview_feedback(payload)
+
+@app.get("/interview/session/{user_id}")
+async def interview_session_no_prefix(user_id: str):
+    return await get_interview_session(user_id)
+
+@app.post("/interview/save-session")
+async def save_session_no_prefix(payload: Dict[str, Any]):
+    return await save_interview_session(payload)
+
+@app.post("/interview/analyze-jd")
+async def analyze_jd_no_prefix(payload: Dict[str, Any]):
+    return await analyze_jd(payload)
+
+@app.post("/interview/voice-transcribe")
+async def voice_transcribe_no_prefix(
+    audio: UploadFile = File(...),
+    history: str = Form(default="[]")
+):
+    return await interview_voice_transcribe(audio, history)
+
+@app.post("/groq-writing-prompt")
+async def groq_writing_prompt_no_prefix(req: Optional[WritingPromptRequest] = None):
+    return await generate_writing_prompt(req)
+
+@app.post("/groq-eval-writing")
+async def groq_eval_writing_no_prefix(req: WritingEvalRequest):
+    return await evaluate_writing(req)
+
+@app.post("/groq-talk-bot")
+async def groq_talk_bot_no_prefix(payload: TalkBotRequest):
+    return await groq_talk_bot(payload)
+
+@app.post("/groq-session-metrics")
+async def groq_session_metrics_no_prefix(payload: MetricsRequest):
+    return await groq_session_metrics(payload)
+
+@app.post("/transcribe-audio")
+async def transcribe_audio_no_prefix(payload: Dict[str, Any]):
+    return await transcribe_audio(payload)
+
+@app.post("/reading/pronunciation-bot")
+async def pronunciation_bot_no_prefix(payload: PronunciationBotRequest):
+    return await pronunciation_bot(payload)
+
+@app.post("/reading/tts-marks")
+async def tts_marks_no_prefix(payload: TTSMarksRequest):
+    return await generate_tts_speech_marks(payload)
+
+@app.post("/translate-word")
+async def translate_word_no_prefix(payload: WordTranslationRequest):
+    return await translate_word(payload)
+
+@app.post("/groq-voice-talk-bot")
+async def groq_voice_talk_bot_no_prefix(
+    audio: UploadFile = File(...),
+    history: str = Form(default="[]")
+):
+    return await groq_voice_talk_bot(audio, history)
+
+@app.get("/dialogues")
+async def dialogues_no_prefix(page: int = Query(1, ge=1)):
+    return await get_dialogues(page)
+
+@app.get("/hollywood-dialogues")
+async def hollywood_dialogues_get_no_prefix(page: int = Query(1)):
+    return await fetch_hollywood_dialogues_get(page)
+
+@app.post("/hollywood-dialogues")
+async def hollywood_dialogues_post_no_prefix(payload: Optional[DialoguesRequest] = None):
+    return await fetch_hollywood_dialogues_post(payload)
+
+# ==========================================
+# SERVER START (for local testing only)
+# ==========================================
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
