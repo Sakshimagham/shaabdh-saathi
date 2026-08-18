@@ -42,6 +42,11 @@ function TalkingBot({ user, onBack }) {
   const sentenceQueueRef = useRef([]);
   const isSentencePlayingRef = useRef(false);
 
+  // ----- NEW REFS for mic auto-restart -----
+  const micActiveRef = useRef(false);
+  const isStoppingManuallyRef = useRef(false);
+  // -----------------------------------------
+
   const API_BASE_URL = import.meta.env?.VITE_API_URL || 'http://localhost:8000/api';
 
   // Save messages to localStorage whenever they change
@@ -110,7 +115,7 @@ function TalkingBot({ user, onBack }) {
     localStorage.setItem('shaabdh_english_percent', englishPercent.toString());
   }, [level, englishPercent]);
 
-  // Play next audio chunk in queue
+  // ---------- UPDATED: playNextInQueue with fallback ----------
   const playNextInQueue = useCallback(() => {
     if (audioQueueRef.current.length === 0) {
       isPlayingRef.current = false;
@@ -133,18 +138,27 @@ function TalkingBot({ user, onBack }) {
       }, 300);
     };
     
+    // Fallback to browser TTS on error
     audio.onerror = () => {
-      console.error("Audio playback error, skipping to next");
+      console.warn("🎧 Backend TTS failed, using browser TTS for:", item.text);
+      const utterance = new SpeechSynthesisUtterance(item.text);
+      utterance.lang = item.lang === 'mr' ? 'mr-IN' : 'en-US';
+      utterance.rate = 0.9;
+      window.speechSynthesis.speak(utterance);
       setTimeout(() => {
         playNextInQueue();
-      }, 300);
+      }, 1000);
     };
     
     audio.play().catch((err) => {
-      console.error("Audio playback error:", err);
+      console.warn("🎧 Audio play error, using browser TTS for:", item.text);
+      const utterance = new SpeechSynthesisUtterance(item.text);
+      utterance.lang = item.lang === 'mr' ? 'mr-IN' : 'en-US';
+      utterance.rate = 0.9;
+      window.speechSynthesis.speak(utterance);
       setTimeout(() => {
         playNextInQueue();
-      }, 300);
+      }, 1000);
     });
   }, []);
 
@@ -330,7 +344,7 @@ function TalkingBot({ user, onBack }) {
   }, [messages, loading]);
 
   // ==========================================
-  // FIXED: SPEECH RECOGNITION - NO AUTO-SEND
+  // UPDATED: SPEECH RECOGNITION with auto-restart
   // ==========================================
   
   const startSpeechRecognition = () => {
@@ -349,6 +363,8 @@ function TalkingBot({ user, onBack }) {
 
       finalTranscriptRef.current = '';
       interimTranscriptRef.current = '';
+      isStoppingManuallyRef.current = false;
+      micActiveRef.current = true;
 
       recognition.onstart = () => {
         setIsRecording(true);
@@ -399,11 +415,22 @@ function TalkingBot({ user, onBack }) {
         console.log('🎤 Recording ended');
         setIsRecording(false);
         isRecordingRef.current = false;
-        
-        if (finalTranscriptRef.current.trim()) {
-          setInput(finalTranscriptRef.current.trim());
-        } else if (interimTranscriptRef.current.trim()) {
-          setInput(interimTranscriptRef.current.trim());
+
+        // Auto‑restart if still active
+        if (micActiveRef.current && !isStoppingManuallyRef.current) {
+          console.log('🔄 Restarting recognition...');
+          setTimeout(() => {
+            if (micActiveRef.current && !isStoppingManuallyRef.current) {
+              startSpeechRecognition();
+            }
+          }, 300);
+        } else {
+          // Final transcript on normal stop
+          if (finalTranscriptRef.current.trim()) {
+            setInput(finalTranscriptRef.current.trim());
+          } else if (interimTranscriptRef.current.trim()) {
+            setInput(interimTranscriptRef.current.trim());
+          }
         }
       };
 
@@ -413,11 +440,14 @@ function TalkingBot({ user, onBack }) {
       console.error('Microphone error:', err);
       setIsRecording(false);
       isRecordingRef.current = false;
+      micActiveRef.current = false;
       alert('Could not access microphone. Please check permissions and try again.');
     }
   };
 
   const stopSpeechRecognition = () => {
+    isStoppingManuallyRef.current = true;
+    micActiveRef.current = false;
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
@@ -438,7 +468,7 @@ function TalkingBot({ user, onBack }) {
   };
 
   // ==========================================
-  // UPDATED: Send Message Handler with Per-Message Metrics
+  // Send Message Handler (unchanged)
   // ==========================================
   const handleSend = async (textToSend) => {
     const finalMsg = textToSend || input;
@@ -467,7 +497,6 @@ function TalkingBot({ user, onBack }) {
     finalTranscriptRef.current = '';
     interimTranscriptRef.current = '';
 
-    // Create user message WITHOUT metrics initially
     const newUserMsg = {
       id: Date.now(),
       sender: 'user',
@@ -519,13 +548,11 @@ function TalkingBot({ user, onBack }) {
         });
       }
 
-      // 🔥 NEW: Extract per-message metrics from backend
       const messageMetrics = data.message_metrics || null;
 
-      // Update the last user message with metrics
       setMessages((prev) => {
         const updated = [...prev];
-        const lastUserIndex = updated.length - 2; // The user message is second last
+        const lastUserIndex = updated.length - 2;
         if (lastUserIndex >= 0 && updated[lastUserIndex].sender === 'user') {
           updated[lastUserIndex] = {
             ...updated[lastUserIndex],
@@ -574,7 +601,7 @@ function TalkingBot({ user, onBack }) {
   };
 
   // ==========================================
-  // UPDATED: End Session with Enhanced Metrics
+  // End Session (unchanged)
   // ==========================================
   const handleEndSession = async () => {
     if (messages.length <= 1) {
@@ -652,6 +679,9 @@ function TalkingBot({ user, onBack }) {
     }
   };
 
+  // ==========================================
+  // RENDER (unchanged)
+  // ==========================================
   return (
     <div style={{ maxWidth: '850px', margin: '0 auto', padding: '20px', fontFamily: "'Segoe UI', sans-serif" }}>
 
@@ -944,7 +974,7 @@ function TalkingBot({ user, onBack }) {
 
                   <div style={{ fontSize: '14px', lineHeight: '1.5' }}>{msg.text}</div>
 
-                  {/* 🔥 NEW: Per-Message Metrics for User Messages */}
+                  {/* Per-Message Metrics for User Messages */}
                   {msg.sender === 'user' && msg.messageMetrics && (
                     <div style={{ 
                       marginTop: '8px', 
