@@ -110,7 +110,7 @@ function TalkingBot({ user, onBack }) {
     localStorage.setItem('shaabdh_english_percent', englishPercent.toString());
   }, [level, englishPercent]);
 
-  // ---------- UPDATED: playNextInQueue with fallback ----------
+  // Play next audio chunk in queue
   const playNextInQueue = useCallback(() => {
     if (audioQueueRef.current.length === 0) {
       isPlayingRef.current = false;
@@ -133,27 +133,18 @@ function TalkingBot({ user, onBack }) {
       }, 300);
     };
     
-    // Fallback to browser TTS on error
     audio.onerror = () => {
-      console.warn("🎧 Backend TTS failed, using browser TTS for:", item.text);
-      const utterance = new SpeechSynthesisUtterance(item.text);
-      utterance.lang = item.lang === 'mr' ? 'mr-IN' : 'en-US';
-      utterance.rate = 0.9;
-      window.speechSynthesis.speak(utterance);
+      console.error("Audio playback error, skipping to next");
       setTimeout(() => {
         playNextInQueue();
-      }, 1000);
+      }, 300);
     };
     
     audio.play().catch((err) => {
-      console.warn("🎧 Audio play error, using browser TTS for:", item.text);
-      const utterance = new SpeechSynthesisUtterance(item.text);
-      utterance.lang = item.lang === 'mr' ? 'mr-IN' : 'en-US';
-      utterance.rate = 0.9;
-      window.speechSynthesis.speak(utterance);
+      console.error("Audio playback error:", err);
       setTimeout(() => {
         playNextInQueue();
-      }, 1000);
+      }, 300);
     });
   }, []);
 
@@ -339,7 +330,7 @@ function TalkingBot({ user, onBack }) {
   }, [messages, loading]);
 
   // ==========================================
-  // ORIGINAL SPEECH RECOGNITION (no auto-restart)
+  // FIXED: SPEECH RECOGNITION - NO AUTO-SEND
   // ==========================================
   
   const startSpeechRecognition = () => {
@@ -447,7 +438,7 @@ function TalkingBot({ user, onBack }) {
   };
 
   // ==========================================
-  // Send Message Handler
+  // UPDATED: Send Message Handler with Per-Message Metrics
   // ==========================================
   const handleSend = async (textToSend) => {
     const finalMsg = textToSend || input;
@@ -476,6 +467,7 @@ function TalkingBot({ user, onBack }) {
     finalTranscriptRef.current = '';
     interimTranscriptRef.current = '';
 
+    // Create user message WITHOUT metrics initially
     const newUserMsg = {
       id: Date.now(),
       sender: 'user',
@@ -527,11 +519,13 @@ function TalkingBot({ user, onBack }) {
         });
       }
 
+      // 🔥 NEW: Extract per-message metrics from backend
       const messageMetrics = data.message_metrics || null;
 
+      // Update the last user message with metrics
       setMessages((prev) => {
         const updated = [...prev];
-        const lastUserIndex = updated.length - 2;
+        const lastUserIndex = updated.length - 2; // The user message is second last
         if (lastUserIndex >= 0 && updated[lastUserIndex].sender === 'user') {
           updated[lastUserIndex] = {
             ...updated[lastUserIndex],
@@ -580,7 +574,7 @@ function TalkingBot({ user, onBack }) {
   };
 
   // ==========================================
-  // End Session (unchanged)
+  // UPDATED: End Session with Enhanced Metrics
   // ==========================================
   const handleEndSession = async () => {
     if (messages.length <= 1) {
@@ -658,9 +652,6 @@ function TalkingBot({ user, onBack }) {
     }
   };
 
-  // ==========================================
-  // RENDER (unchanged)
-  // ==========================================
   return (
     <div style={{ maxWidth: '850px', margin: '0 auto', padding: '20px', fontFamily: "'Segoe UI', sans-serif" }}>
 
@@ -953,6 +944,7 @@ function TalkingBot({ user, onBack }) {
 
                   <div style={{ fontSize: '14px', lineHeight: '1.5' }}>{msg.text}</div>
 
+                  {/* 🔥 NEW: Per-Message Metrics for User Messages */}
                   {msg.sender === 'user' && msg.messageMetrics && (
                     <div style={{ 
                       marginTop: '8px', 
