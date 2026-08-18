@@ -21,6 +21,10 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, ConfigDict
 from starlette.middleware.cors import CORSMiddleware
 
+# ===== ADDED: gTTS and OpenAI for TTS =====
+from gtts import gTTS
+from openai import OpenAI
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -123,6 +127,14 @@ gemini_api_key = os.environ.get("GEMINI_API_KEY")
 gemini_client = (
     genai.Client(api_key=gemini_api_key) if (GEMINI_AVAILABLE and gemini_api_key) else None
 )
+
+# ===== ADDED: OpenAI TTS client (fallback) =====
+openai_tts_client = None
+if os.environ.get("OPENAI_API_KEY"):
+    openai_tts_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    logger.info("✅ OpenAI TTS client initialized (fallback ready)")
+else:
+    logger.warning("⚠️ OPENAI_API_KEY not set – OpenAI fallback disabled")
 
 
 # ==========================================
@@ -2613,65 +2625,59 @@ async def root():
 
 
 # ==========================================
-# EDGE TTS ENDPOINT
+# UPDATED TTS ENDPOINT: gTTS primary, OpenAI fallback
 # ==========================================
 @app.get("/api/tts")
 async def generate_speech(
     text: str = Query(...),
     language: str = Query("auto")
 ):
+    """
+    TTS endpoint with fallback:
+    1. Primary: gTTS (Google TTS) – free, supports Marathi
+    2. Fallback: OpenAI TTS – high quality, requires API key
+    """
+    errors = []
+    
+    # ----- METHOD 1: gTTS (primary) -----
     try:
-        import edge_tts
-        import re
-
-        voices = {
-            "en": "en-US-JennyNeural",
-            "en-us": "en-US-JennyNeural",
-            "en-gb": "en-GB-SoniaNeural",
-            "mr": "mr-IN-AarohiNeural",
-            "hi": "hi-IN-SwaraNeural"
-        }
-
-        if language in voices:
-            voice = voices[language]
-            logger.info(f"🔊 Using {language} voice: {voice}")
-        else:
-            devanagari_pattern = re.compile(r'[\u0900-\u097F]')
-            has_devanagari = bool(devanagari_pattern.search(text))
-            latin_pattern = re.compile(r'[a-zA-Z]')
-            has_latin = bool(latin_pattern.search(text))
-
-            if has_devanagari and not has_latin:
-                voice = "mr-IN-AarohiNeural"
-                logger.info(f"🔊 Using Marathi voice for Devanagari text")
-            elif has_latin and not has_devanagari:
-                voice = "en-US-JennyNeural"
-                logger.info(f"🔊 Using American English voice for Latin text")
-            else:
-                english_words = len(re.findall(r'\b[a-zA-Z]{2,}\b', text))
-                marathi_words = len(re.findall(r'[\u0900-\u097F]+', text))
-
-                if marathi_words > english_words:
-                    voice = "mr-IN-AarohiNeural"
-                    logger.info(f"🔊 Using Marathi voice (more Marathi words)")
-                elif english_words > marathi_words:
-                    voice = "en-US-JennyNeural"
-                    logger.info(f"🔊 Using American English voice (more English words)")
-                else:
-                    voice = "en-US-JennyNeural"
-                    logger.info(f"🔊 Using American English voice (mixed, default)")
-
-        communicator = edge_tts.Communicate(text, voice=voice)
-        audio_bytes = b""
-
-        async for chunk in communicator.stream():
-            if chunk["type"] == "audio":
-                audio_bytes += chunk["data"]
-
-        return Response(content=audio_bytes, media_type="audio/mpeg")
+        lang = 'mr' if language == 'mr' else 'en'
+        tts = gTTS(text=text, lang=lang, slow=False)
+        audio_bytes = io.BytesIO()
+        tts.write_to_fp(audio_bytes)
+        audio_bytes.seek(0)
+        
+        logger.info(f"✅ gTTS succeeded for {lang} language")
+        return Response(content=audio_bytes.read(), media_type="audio/mpeg")
     except Exception as e:
-        logger.error(f"❌ Error in TTS generation: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        error_msg = f"gTTS failed: {e}"
+        logger.warning(error_msg)
+        errors.append(error_msg)
+    
+    # ----- METHOD 2: OpenAI TTS (fallback) -----
+    if openai_tts_client:
+        try:
+            # OpenAI TTS supports: alloy, echo, fable, onyx, nova, shimmer
+            voice = "nova"  # clear female voice
+            response = openai_tts_client.audio.speech.create(
+                model="tts-1",
+                voice=voice,
+                input=text
+            )
+            logger.info(f"✅ OpenAI TTS succeeded for text: {text[:30]}...")
+            return Response(content=response.content, media_type="audio/mpeg")
+        except Exception as e:
+            error_msg = f"OpenAI TTS failed: {e}"
+            logger.error(error_msg)
+            errors.append(error_msg)
+    
+    # ----- All methods failed -----
+    error_summary = "; ".join(errors)
+    logger.error(f"❌ All TTS methods failed: {error_summary}")
+    raise HTTPException(
+        status_code=500,
+        detail=f"TTS generation failed. Errors: {error_summary}"
+    )
 
 
 # ==========================================
