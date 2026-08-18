@@ -585,7 +585,8 @@ async def call_llm_with_fallback(
     errors = []
 
     if groq_client:
-        groq_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+        # ✅ CORRECTED Groq model names (as of August 2026)
+        groq_models = ["llama3-70b-8192", "llama3-8b-8192"]
         for model in groq_models:
             try:
                 logger.info(f"⚡ Trying Groq model: {model}")
