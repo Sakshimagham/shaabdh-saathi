@@ -44,7 +44,7 @@ function TalkingBot({ user, onBack }) {
 
   const API_BASE_URL = import.meta.env?.VITE_API_URL || 'http://localhost:8000/api';
 
-  // Save messages to localStorage whenever they change
+  // Save messages to localStorage
   useEffect(() => {
     localStorage.setItem('shaabdh_talk_bot_messages', JSON.stringify(messages));
   }, [messages]);
@@ -110,15 +110,34 @@ function TalkingBot({ user, onBack }) {
     localStorage.setItem('shaabdh_english_percent', englishPercent.toString());
   }, [level, englishPercent]);
 
-  // ----- Helper: Speak with browser TTS as fallback -----
+  // ----- Helper: Speak with browser TTS as fallback (with voice loading) -----
   const speakWithBrowserTTS = useCallback((text, lang) => {
+    if (!text) return;
+    console.log(`🗣️ Browser TTS fallback for: "${text}" (${lang})`);
+
+    // Ensure voices are loaded; if not, wait a bit.
+    let voices = window.speechSynthesis.getVoices();
+    if (voices.length === 0) {
+      // Some browsers need an event; we'll try a short delay.
+      setTimeout(() => {
+        voices = window.speechSynthesis.getVoices();
+      }, 200);
+    }
+
     const utterance = new SpeechSynthesisUtterance(text);
+    // Use a more specific language tag for better voice matching
     utterance.lang = lang === 'mr' ? 'mr-IN' : 'en-US';
     utterance.rate = 0.9;
-    // Try to find a voice for the language
-    const voices = window.speechSynthesis.getVoices();
+
+    // Try to find a voice that matches the language
     const voice = voices.find(v => v.lang.startsWith(lang === 'mr' ? 'mr' : 'en'));
-    if (voice) utterance.voice = voice;
+    if (voice) {
+      utterance.voice = voice;
+      console.log(`✅ Using voice: ${voice.name} (${voice.lang})`);
+    } else {
+      console.warn(`⚠️ No voice found for ${lang}, using default.`);
+    }
+
     window.speechSynthesis.speak(utterance);
   }, []);
 
@@ -136,18 +155,21 @@ function TalkingBot({ user, onBack }) {
     const item = audioQueueRef.current.shift();
     isPlayingRef.current = true;
     
+    console.log(`🔊 Playing chunk: "${item.text}" (${item.lang}) from ${item.url}`);
+
     const audio = new Audio(item.url);
     currentAudioRef.current = audio;
     
     audio.onended = () => {
+      console.log(`✅ Chunk finished: "${item.text}"`);
       setTimeout(() => {
         playNextInQueue();
-      }, 500); // increased pause for natural flow
+      }, 500); // natural pause
     };
     
-    // Fallback to browser TTS on error
-    audio.onerror = () => {
-      console.warn("🎧 Backend TTS failed, using browser TTS for:", item.text);
+    // Fallback to browser TTS on error (404, 500, network)
+    audio.onerror = (e) => {
+      console.warn(`⚠️ Backend TTS failed for "${item.text}" (${item.lang})`, e);
       speakWithBrowserTTS(item.text, item.lang);
       setTimeout(() => {
         playNextInQueue();
@@ -155,7 +177,7 @@ function TalkingBot({ user, onBack }) {
     };
     
     audio.play().catch((err) => {
-      console.warn("🎧 Audio play error, using browser TTS for:", item.text);
+      console.warn(`⚠️ Audio play error for "${item.text}"`, err);
       speakWithBrowserTTS(item.text, item.lang);
       setTimeout(() => {
         playNextInQueue();
@@ -482,7 +504,6 @@ function TalkingBot({ user, onBack }) {
     finalTranscriptRef.current = '';
     interimTranscriptRef.current = '';
 
-    // Create user message WITHOUT metrics initially
     const newUserMsg = {
       id: Date.now(),
       sender: 'user',
@@ -534,13 +555,11 @@ function TalkingBot({ user, onBack }) {
         });
       }
 
-      // Extract per-message metrics from backend
       const messageMetrics = data.message_metrics || null;
 
-      // Update the last user message with metrics
       setMessages((prev) => {
         const updated = [...prev];
-        const lastUserIndex = updated.length - 2; // The user message is second last
+        const lastUserIndex = updated.length - 2;
         if (lastUserIndex >= 0 && updated[lastUserIndex].sender === 'user') {
           updated[lastUserIndex] = {
             ...updated[lastUserIndex],
