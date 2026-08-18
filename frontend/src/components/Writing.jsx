@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import InteractiveText from './InteractiveText';
 
+// ==========================================
+// API BASE URL – uses environment variable or falls back to localhost
+// ==========================================
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
 function Writing({ user, onBack }) {
   const [level, setLevel] = useState(user?.level || 1);
   const [promptData, setPromptData] = useState(null);
@@ -18,7 +23,7 @@ function Writing({ user, onBack }) {
     setText('');
 
     try {
-      const response = await fetch('http://localhost:8000/api/groq-writing-prompt', {
+      const response = await fetch(`${API_BASE}/api/groq-writing-prompt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ level: level })
@@ -52,7 +57,7 @@ function Writing({ user, onBack }) {
     setEvaluating(true);
 
     try {
-      const response = await fetch('http://localhost:8000/api/groq-eval-writing', {
+      const response = await fetch(`${API_BASE}/api/groq-eval-writing`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
