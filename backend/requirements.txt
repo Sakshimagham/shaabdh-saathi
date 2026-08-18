@@ -10,7 +10,7 @@ pymongo==4.9.2
 
 # Env & certificates
 python-dotenv==1.0.1
-certifi  # Let pip choose the version that satisfies all dependencies
+certifi
 
 # LLM clients
 groq==0.9.0
@@ -32,5 +32,10 @@ vosk==0.3.45
 # Required by faster-whisper & pydub
 numpy==1.26.4
 
-# Optional but often used
+# Optional
 requests==2.31.0
+
+# ---------- Fix for Groq + httpx ----------
+# Downgrade httpx to avoid 'proxies' keyword error
+httpx==0.27.2
+httpcore==0.18.0
