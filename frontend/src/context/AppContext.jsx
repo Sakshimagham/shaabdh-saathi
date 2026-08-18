@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import axios from "axios";
 
-const API = `${import.meta.env.VITE_BACKEND_URL || import.meta.env.REACT_APP_BACKEND_URL || 'http://localhost:5000'}/api`;
+const API = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api`;
 const AppCtx = createContext(null);
 export const useApp = () => useContext(AppCtx);
 
